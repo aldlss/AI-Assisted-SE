@@ -12,37 +12,53 @@ def get_exif_date(image_path):
     except (KeyError, ValueError, piexif.InvalidImageDataError):
         return None
 
-def add_watermark(image_path, output_dir, text, font_size, color, position):
+def add_watermark(image_path, output_dir, text, font_size_override, color, position):
     """Adds a text watermark to an image."""
     try:
         image = Image.open(image_path).convert("RGBA")
+        
+        # Dynamically adjust font size if not overridden
+        if font_size_override:
+            font_size = font_size_override
+        else:
+            font_size = int(min(image.width, image.height) * 0.05) # 5% of the smaller dimension
+
         txt_layer = Image.new('RGBA', image.size, (255, 255, 255, 0))
         
         try:
             font = ImageFont.truetype("arial.ttf", font_size)
         except IOError:
-            font = ImageFont.load_default()
+            font = ImageFont.load_default(size=font_size)
 
         draw = ImageDraw.Draw(txt_layer)
         
-        text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:]
+        # Get text bounding box
+        try:
+            # A more robust way to get the bounding box
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+        except TypeError:
+            # Fallback for older Pillow versions
+            text_width, text_height = draw.textsize(text, font=font)
 
         x, y = 0, 0
+        margin = int(min(image.width, image.height) * 0.02) # 2% margin
         if position == 'center':
             x = (image.width - text_width) / 2
             y = (image.height - text_height) / 2
         elif position == 'top-left':
-            x = 10
-            y = 10
+            x = margin
+            y = margin
         elif position == 'top-right':
-            x = image.width - text_width - 10
-            y = 10
+            x = image.width - text_width - margin
+            y = margin
         elif position == 'bottom-left':
-            x = 10
-            y = image.height - text_height - 10
+            x = margin
+            y = image.height - text_height - margin
         elif position == 'bottom-right':
-            x = image.width - text_width - 10
-            y = image.height - text_height - 10
+            x = image.width - text_width - margin
+            y = image.height - text_height - margin
 
         draw.text((x, y), text, font=font, fill=color)
         
@@ -65,7 +81,7 @@ def add_watermark(image_path, output_dir, text, font_size, color, position):
 def main():
     parser = argparse.ArgumentParser(description="Add a date watermark to images.")
     parser.add_argument("path", help="Path to the image file or directory of images.")
-    parser.add_argument("--font-size", type=int, default=50, help="Font size of the watermark text.")
+    parser.add_argument("--font-size", type=int, default=None, help="Manually set font size. Overrides dynamic sizing.")
     parser.add_argument("--color", default="white", help="Color of the watermark text.")
     parser.add_argument("--position", default="bottom-right", choices=['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'], help="Position of the watermark.")
     
@@ -83,7 +99,8 @@ def main():
         print(f"Error: The path '{input_path}' is not a valid file or directory.")
         return
 
-    output_dir = f"{base_dir}_watermark"
+    # Output to a 'watermark' subdirectory of the original folder
+    output_dir = os.path.join(base_dir, "watermark")
 
     for image_path in image_paths:
         date_str = get_exif_date(image_path)
