@@ -89,5 +89,40 @@ python -m pip install -r requirements.txt
 python -m watermark_app.main
 ```
 
+### 从仓库根目录运行（不在根目录放启动脚本）
+由于目录名包含空格 `Photo Watermark 2`，直接在仓库根目录执行 `python -m watermark_app.main` 会找不到包。请使用以下任一方式：
+
+方式 A（推荐，进入子目录）：
+```bash
+cd "Photo Watermark 2"
+python -m pip install -r requirements.txt   # 首次或依赖更新时
+python -m watermark_app.main
+```
+
+方式 B（根目录临时指定 PYTHONPATH）：
+```bash
+PYTHONPATH="Photo Watermark 2" python -m watermark_app.main
+```
+Windows PowerShell：
+```pwsh
+$env:PYTHONPATH="Photo Watermark 2"; python -m watermark_app.main
+```
+Windows CMD：
+```cmd
+set PYTHONPATH=Photo Watermark 2 && python -m watermark_app.main
+```
+
+方式 C（可选：重命名目录以避免空格）
+如果你不介意重命名，可将目录改成无空格：
+```bash
+git mv "Photo Watermark 2" photo_watermark_2
+```
+然后在根目录即可：
+```bash
+PYTHONPATH=photo_watermark_2 python -m watermark_app.main
+```
+
+> 不在仓库根目录放置额外启动脚本，保持根目录整洁；使用 PYTHONPATH 或进入子目录即能满足运行需求。
+
 ## 许可证
 （根据需要选择，可后续添加）
