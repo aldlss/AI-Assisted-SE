@@ -17,3 +17,4 @@ dist/
 # Image folders
 images/
 *_watermark/
+out/
