@@ -70,7 +70,24 @@ class PreviewLabel(QLabel):
         text = self.watermark_text or ""
         if text:
             # 放右下角简单实现；后续加入九宫格/拖拽
-            tw, th = draw.textsize(text, font=font)
+            # Pillow 10 起移除了 textsize，优先使用 textbbox
+            def _measure_text(draw_obj, text_str, fnt):
+                try:
+                    bbox = draw_obj.textbbox((0, 0), text_str, font=fnt)
+                    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+                except Exception:
+                    try:
+                        # 某些版本可用 font.getbbox
+                        bbox = fnt.getbbox(text_str)
+                        return bbox[2] - bbox[0], bbox[3] - bbox[1]
+                    except Exception:
+                        try:
+                            # 兜底方案：使用掩码尺寸
+                            return fnt.getmask(text_str).size
+                        except Exception:
+                            return 0, 0
+
+            tw, th = _measure_text(draw, text, font)
             margin = 16
             x = img.width - tw - margin
             y = img.height - th - margin
