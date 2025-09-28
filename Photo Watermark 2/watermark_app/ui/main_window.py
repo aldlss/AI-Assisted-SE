@@ -17,10 +17,12 @@ from PySide6.QtCore import Qt, QSize, QPoint
 from PySide6.QtGui import QAction, QPixmap, QIcon, QDragEnterEvent, QDropEvent, QPainter, QColor
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QListWidget, QListWidgetItem, QFileDialog,
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QSlider, QSplitter, QMessageBox, QSizePolicy, QGroupBox, QApplication
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QSlider, QSplitter, QMessageBox, QSizePolicy, QGroupBox, QApplication,
+    QComboBox, QColorDialog, QSpinBox
 )
 from PIL import Image, ImageQt, ImageDraw, ImageFont
 from ..core.image_loader import ImageLoader
+from ..core.preview_composer import compose_text_watermark
 
 SUPPORTED_EXT = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
 
@@ -32,8 +34,15 @@ class PreviewLabel(QLabel):
         self.setStyleSheet("background:#222; border:1px solid #444;")
         self._base_qpix: Optional[QPixmap] = None
         self._composed_qpix: Optional[QPixmap] = None
-        self.watermark_text: str = "示例水印"
-        self.opacity: float = 0.5  # 0~1
+        # 文本水印参数（去除方法内类型批注，避免解析器告警）
+        self.watermark_text = "示例水印"
+        self.opacity = 0.5  # 0~1
+        self.font_size = 32
+        self.color_rgb = (255, 255, 255)
+        self.anchor = "bottom-right"  # 九宫格锚点
+        self.offset = QPoint(-16, -16)  # 相对锚点偏移
+        self._dragging = False
+        self._drag_start = QPoint(0, 0)
 
     def load_image(self, path: str):
         if not os.path.isfile(path):
@@ -51,9 +60,15 @@ class PreviewLabel(QLabel):
         except Exception as e:
             QMessageBox.warning(self, "加载失败", f"无法加载图片: {e}")
 
-    def set_watermark(self, text: str, opacity: float):
+    def set_watermark(self, text: str, opacity: float, *, font_size: Optional[int] = None, color_rgb: Optional[tuple[int,int,int]] = None, anchor: Optional[str] = None):
         self.watermark_text = text
         self.opacity = max(0.0, min(1.0, opacity))
+        if font_size is not None:
+            self.font_size = max(6, min(400, int(font_size)))
+        if color_rgb is not None:
+            self.color_rgb = tuple(color_rgb)
+        if anchor is not None:
+            self.anchor = anchor
         self.update_composite()
 
     def update_composite(self):
@@ -65,9 +80,12 @@ class PreviewLabel(QLabel):
         draw = ImageDraw.Draw(img)
         # 简单字体（后续允许用户自选）
         try:
-            font = ImageFont.truetype("arial.ttf", 32)
+            font = ImageFont.truetype("arial.ttf", self.font_size)
         except Exception:
-            font = ImageFont.load_default()
+            try:
+                font = ImageFont.truetype("DejaVuSans.ttf", self.font_size)
+            except Exception:
+                font = ImageFont.load_default()
         text = self.watermark_text or ""
         if text:
             # 放右下角简单实现；后续加入九宫格/拖拽
@@ -89,19 +107,56 @@ class PreviewLabel(QLabel):
                             return 0, 0
 
             tw, th = _measure_text(draw, text, font)
-            margin = 16
-            x = img.width - tw - margin
-            y = img.height - th - margin
-            # 透明度通过单独图层实现
-            text_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            d2 = ImageDraw.Draw(text_layer)
-            # 白色半透明
-            alpha = int(255 * self.opacity)
-            d2.text((x, y), text, font=font, fill=(255, 255, 255, alpha))
-            img = Image.alpha_composite(img, text_layer)
+            # 计算九宫格锚点位置
+            ax, ay = self._anchor_pos(img.width, img.height, tw, th, self.anchor)
+            x = int(ax + self.offset.x())
+            y = int(ay + self.offset.y())
+            rgba = (*self.color_rgb, int(255 * self.opacity))
+            img = compose_text_watermark(img, text=text, font=font, color_rgba=rgba, pos_xy=(x, y))
         qimg = ImageQt.ImageQt(img)
         self._composed_qpix = QPixmap.fromImage(qimg)
         self.setPixmap(self._composed_qpix)
+
+    def _anchor_pos(self, W: int, H: int, tw: int, th: int, anchor: str) -> tuple[int, int]:
+        margin = 16
+        mapping = {
+            "top-left": (margin, margin),
+            "top-center": ((W - tw)//2, margin),
+            "top-right": (W - tw - margin, margin),
+            "middle-left": (margin, (H - th)//2),
+            "center": ((W - tw)//2, (H - th)//2),
+            "middle-right": (W - tw - margin, (H - th)//2),
+            "bottom-left": (margin, H - th - margin),
+            "bottom-center": ((W - tw)//2, H - th - margin),
+            "bottom-right": (W - tw - margin, H - th - margin),
+        }
+        return mapping.get(anchor, mapping["bottom-right"])  # 默认右下
+
+    # 鼠标拖拽更新 offset
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton and hasattr(self, '_pil_base'):
+            self._dragging = True
+            self._drag_start = e.pos()
+            e.accept()
+        else:
+            super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._dragging:
+            delta = e.pos() - self._drag_start
+            self._drag_start = e.pos()
+            self.offset += delta
+            self.update_composite()
+            e.accept()
+        else:
+            super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton and self._dragging:
+            self._dragging = False
+            e.accept()
+        else:
+            super().mouseReleaseEvent(e)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -144,10 +199,37 @@ class MainWindow(QMainWindow):
         self.opacity_slider.setRange(0, 100)
         self.opacity_slider.setValue(50)
         self.opacity_slider.valueChanged.connect(self.on_opacity_change)
+        # 字号
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(6, 400)
+        self.font_size_spin.setValue(32)
+        self.font_size_spin.valueChanged.connect(self.on_font_size_change)
+        # 颜色
+        color_row = QHBoxLayout()
+        self.btn_color = QPushButton("选择颜色…")
+        self.btn_color.clicked.connect(self.on_pick_color)
+        self.lbl_color = QLabel("#FFFFFF")
+        color_row.addWidget(self.btn_color)
+        color_row.addWidget(self.lbl_color)
+        # 九宫格预设
+        self.anchor_combo = QComboBox()
+        self.anchor_combo.addItems([
+            "top-left","top-center","top-right",
+            "middle-left","center","middle-right",
+            "bottom-left","bottom-center","bottom-right"
+        ])
+        self.anchor_combo.setCurrentText("bottom-right")
+        self.anchor_combo.currentTextChanged.connect(self.on_anchor_change)
         g_layout.addWidget(QLabel("水印文本："))
         g_layout.addWidget(self.text_edit)
         g_layout.addWidget(QLabel("透明度："))
         g_layout.addWidget(self.opacity_slider)
+        g_layout.addWidget(QLabel("字号："))
+        g_layout.addWidget(self.font_size_spin)
+        g_layout.addWidget(QLabel("颜色："))
+        g_layout.addLayout(color_row)
+        g_layout.addWidget(QLabel("位置预设："))
+        g_layout.addWidget(self.anchor_combo)
         right_layout.addWidget(group)
         right_layout.addStretch(1)
 
@@ -210,6 +292,22 @@ class MainWindow(QMainWindow):
     def on_opacity_change(self, v: int):
         text = self.text_edit.toPlainText().strip()
         self.preview.set_watermark(text, v/100.0)
+
+    def on_font_size_change(self, v: int):
+        text = self.text_edit.toPlainText().strip()
+        self.preview.set_watermark(text, self.opacity_slider.value()/100.0, font_size=v)
+
+    def on_pick_color(self):
+        col = QColorDialog.getColor(QColor(255,255,255), self, "选择文本颜色")
+        if col.isValid():
+            rgb = (col.red(), col.green(), col.blue())
+            self.lbl_color.setText(f"#{col.red():02X}{col.green():02X}{col.blue():02X}")
+            text = self.text_edit.toPlainText().strip()
+            self.preview.set_watermark(text, self.opacity_slider.value()/100.0, color_rgb=rgb)
+
+    def on_anchor_change(self, anchor: str):
+        text = self.text_edit.toPlainText().strip()
+        self.preview.set_watermark(text, self.opacity_slider.value()/100.0, anchor=anchor)
 
     # ---------- 拖拽支持 ----------
     def dragEnterEvent(self, event: QDragEnterEvent):
