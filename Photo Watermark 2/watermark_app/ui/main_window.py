@@ -43,6 +43,9 @@ class PreviewLabel(QLabel):
         self.offset = QPoint(-16, -16)  # 相对锚点偏移
         self._dragging = False
         self._drag_start = QPoint(0, 0)
+        # 字体解析缓存
+        self._font_cache = {}
+        self._font_path = None  # 解析到的可用 TTF 路径
 
     def load_image(self, path: str):
         if not os.path.isfile(path):
@@ -78,14 +81,8 @@ class PreviewLabel(QLabel):
             return
         img = self._pil_base.copy()
         draw = ImageDraw.Draw(img)
-        # 简单字体（后续允许用户自选）
-        try:
-            font = ImageFont.truetype("arial.ttf", self.font_size)
-        except Exception:
-            try:
-                font = ImageFont.truetype("DejaVuSans.ttf", self.font_size)
-            except Exception:
-                font = ImageFont.load_default()
+        # 字体（尽量使用 TrueType，以便字号生效；找不到则退回位图字体）
+        font = self._get_font(self.font_size)
         text = self.watermark_text or ""
         if text:
             # 放右下角简单实现；后续加入九宫格/拖拽
@@ -116,6 +113,44 @@ class PreviewLabel(QLabel):
         qimg = ImageQt.ImageQt(img)
         self._composed_qpix = QPixmap.fromImage(qimg)
         self.setPixmap(self._composed_qpix)
+
+    def _get_font(self, size: int):
+        key = (self._font_path, int(size))
+        if key in self._font_cache:
+            return self._font_cache[key]
+        # 若尚未解析到字体路径，尝试常见系统路径
+        if self._font_path is None:
+            candidates = [
+                # Linux 常见路径（DejaVu）
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+                # macOS 常见路径（Arial/Helvetica 替代）
+                "/Library/Fonts/Arial.ttf",
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                # Windows 常见路径
+                "C:/Windows/Fonts/arial.ttf",
+            ]
+            for p in candidates:
+                try:
+                    _ = ImageFont.truetype(p, max(6, int(size)))
+                    self._font_path = p
+                    break
+                except Exception:
+                    continue
+        try:
+            if self._font_path:
+                f = ImageFont.truetype(self._font_path, max(6, int(size)))
+            else:
+                # 直接尝试通用字体名（部分环境可解析）
+                try:
+                    f = ImageFont.truetype("DejaVuSans.ttf", max(6, int(size)))
+                except Exception:
+                    f = ImageFont.truetype("arial.ttf", max(6, int(size)))
+        except Exception:
+            # 最后退回位图字体（不支持变更字号）
+            f = ImageFont.load_default()
+        self._font_cache[key] = f
+        return f
 
     def _anchor_pos(self, W: int, H: int, tw: int, th: int, anchor: str) -> tuple[int, int]:
         margin = 16
