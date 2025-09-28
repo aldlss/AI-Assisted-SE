@@ -13,7 +13,7 @@
 from __future__ import annotations
 import os
 from typing import List, Optional
-from PySide6.QtCore import Qt, QSize, QPoint
+from PySide6.QtCore import Qt, QSize, QPoint, QTimer
 from PySide6.QtGui import QAction, QPixmap, QIcon, QDragEnterEvent, QDropEvent, QPainter, QColor, QFont, QFontMetrics, QImage
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QListWidget, QListWidgetItem, QFileDialog,
@@ -340,8 +340,15 @@ class MainWindow(QMainWindow):
     def on_anchor_change(self, anchor: str):
         # 切换预设位置时，重置手动偏移，避免叠加
         self.preview.offset = QPoint(-16, -16)
+        # 立即收起下拉，避免用户感知为“卡住”
+        try:
+            self.anchor_combo.hidePopup()
+        except Exception:
+            pass
         text = self.text_edit.toPlainText().strip()
-        self.preview.set_watermark(text, self.opacity_slider.value()/100.0, anchor=anchor)
+        # 将重绘延迟到下一帧，让下拉先关闭
+        val = self.opacity_slider.value()/100.0
+        QTimer.singleShot(0, lambda a=anchor, t=text, v=val: self.preview.set_watermark(t, v, anchor=a))
 
     # ---------- 拖拽支持 ----------
     def dragEnterEvent(self, event: QDragEnterEvent):
