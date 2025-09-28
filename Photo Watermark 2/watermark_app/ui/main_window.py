@@ -18,11 +18,12 @@ from PySide6.QtGui import QAction, QPixmap, QIcon, QDragEnterEvent, QDropEvent, 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QListWidget, QListWidgetItem, QFileDialog,
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QSlider, QSplitter, QMessageBox, QSizePolicy, QGroupBox, QApplication,
-    QComboBox, QColorDialog, QSpinBox
+    QComboBox, QColorDialog, QSpinBox, QLineEdit
 )
 from PIL import Image, ImageQt, ImageDraw, ImageFont
 from ..core.image_loader import ImageLoader
 from ..core.preview_composer import compose_text_watermark
+from ..core.exporter import export_batch, ExportSettings
 
 SUPPORTED_EXT = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
 
@@ -263,6 +264,45 @@ class MainWindow(QMainWindow):
         g_layout.addWidget(QLabel("位置预设："))
         g_layout.addWidget(self.anchor_combo)
         right_layout.addWidget(group)
+        # 导出面板
+        exp = QGroupBox("导出")
+        exp_l = QVBoxLayout(exp)
+        # 输出目录
+        out_row = QHBoxLayout()
+        self.out_dir_edit = QLineEdit()
+        self.out_dir_btn = QPushButton("选择输出目录…")
+        self.out_dir_btn.clicked.connect(self.on_pick_out_dir)
+        out_row.addWidget(self.out_dir_edit)
+        out_row.addWidget(self.out_dir_btn)
+        # 命名规则
+        name_row = QHBoxLayout()
+        self.name_rule = QComboBox(); self.name_rule.addItems(["keep","prefix","suffix"])
+        self.prefix_edit = QLineEdit(); self.prefix_edit.setPlaceholderText("前缀，如 wm_")
+        self.suffix_edit = QLineEdit(); self.suffix_edit.setPlaceholderText("后缀，如 _watermarked")
+        name_row.addWidget(QLabel("命名："))
+        name_row.addWidget(self.name_rule)
+        name_row.addWidget(self.prefix_edit)
+        name_row.addWidget(self.suffix_edit)
+        # 格式和质量
+        fmt_row = QHBoxLayout()
+        self.fmt_combo = QComboBox(); self.fmt_combo.addItems(["png","jpeg"]) ; self.fmt_combo.setCurrentText("png")
+        self.quality = QSpinBox(); self.quality.setRange(1,100); self.quality.setValue(90)
+        fmt_row.addWidget(QLabel("格式：")); fmt_row.addWidget(self.fmt_combo)
+        fmt_row.addWidget(QLabel("JPEG质量：")); fmt_row.addWidget(self.quality)
+        # 尺寸调整
+        resize_row = QHBoxLayout()
+        self.resize_mode = QComboBox(); self.resize_mode.addItems(["none","width","height","percent"]) ; self.resize_mode.setCurrentText("none")
+        self.resize_value = QSpinBox(); self.resize_value.setRange(1, 10000); self.resize_value.setValue(100)
+        resize_row.addWidget(QLabel("缩放：")); resize_row.addWidget(self.resize_mode); resize_row.addWidget(self.resize_value)
+        # 导出按钮
+        self.btn_export = QPushButton("批量导出…")
+        self.btn_export.clicked.connect(self.on_export)
+        exp_l.addLayout(out_row)
+        exp_l.addLayout(name_row)
+        exp_l.addLayout(fmt_row)
+        exp_l.addLayout(resize_row)
+        exp_l.addWidget(self.btn_export)
+        right_layout.addWidget(exp)
         right_layout.addStretch(1)
 
         splitter.addWidget(left_widget)
@@ -275,6 +315,10 @@ class MainWindow(QMainWindow):
         act_import = QAction("导入…", self)
         act_import.triggered.connect(self.import_images_dialog)
         file_menu.addAction(act_import)
+        # 快捷导出
+        act_export = QAction("批量导出…", self)
+        act_export.triggered.connect(self.on_export)
+        file_menu.addAction(act_export)
 
     # ---------- 功能：导入 ----------
     def import_images_dialog(self):
@@ -349,6 +393,78 @@ class MainWindow(QMainWindow):
         # 将重绘延迟到下一帧，让下拉先关闭
         val = self.opacity_slider.value()/100.0
         QTimer.singleShot(0, lambda a=anchor, t=text, v=val: self.preview.set_watermark(t, v, anchor=a))
+
+    def on_pick_out_dir(self):
+        d = QFileDialog.getExistingDirectory(self, "选择输出目录", os.getcwd())
+        if d:
+            self.out_dir_edit.setText(d)
+
+    def _offset_ratio(self) -> tuple[float,float]:
+        # 将当前预览 offset 映射为相对原图的比例（基于当前预览图尺寸与原图尺寸不一致情况，采用相对百分比更稳）
+        # 这里预览层内没有原图尺寸，先用相对于预览图的百分比；导出时按原图宽高乘算
+        if not hasattr(self.preview, '_pil_base'):
+            return (0.0, 0.0)
+        img = self.preview._pil_base
+        # 计算当前文本宽高估算（用 Qt 与当前字号，保持一致）
+        qfont = QFont(); qfont.setPointSize(int(max(6, min(400, self.preview.font_size))))
+        fm = QFontMetrics(qfont)
+        tw = max(1, fm.horizontalAdvance(self.preview.watermark_text or ""))
+        th = max(1, fm.height())
+        ax, ay = self.preview._anchor_pos(img.width, img.height, tw, th, self.preview.anchor)
+        x = ax + self.preview.offset.x()
+        y = ay + self.preview.offset.y()
+        # 将与锚点的偏移换算成相对比例
+        rx = (x - ax) / max(1, img.width)
+        ry = (y - ay) / max(1, img.height)
+        return (float(rx), float(ry))
+
+    def on_export(self):
+        if not self.images:
+            QMessageBox.information(self, "提示", "请先导入图片")
+            return
+        out_dir = self.out_dir_edit.text().strip()
+        if not out_dir:
+            QMessageBox.warning(self, "输出目录", "请选择输出目录")
+            return
+        # 防止导出到原文件夹（默认禁止）
+        first_dir = os.path.dirname(self.images[0])
+        if os.path.abspath(out_dir) == os.path.abspath(first_dir):
+            QMessageBox.warning(self, "输出目录", "为防止覆盖原图，禁止导出到原图所在目录，请选择其他位置")
+            return
+        fmt = self.fmt_combo.currentText().lower()
+        name_rule = self.name_rule.currentText()
+        prefix = self.prefix_edit.text().strip()
+        suffix = self.suffix_edit.text().strip()
+        jpeg_quality = self.quality.value()
+        rmode = self.resize_mode.currentText()
+        resize_mode = None if rmode == 'none' else rmode
+        resize_value = self.resize_value.value() if resize_mode else None
+        settings = ExportSettings(
+            output_dir=out_dir,
+            fmt=fmt,
+            name_rule=name_rule,
+            prefix=prefix,
+            suffix=suffix,
+            jpeg_quality=jpeg_quality,
+            resize_mode=resize_mode,
+            resize_value=resize_value,
+        )
+        text = self.text_edit.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "水印内容", "请输入文本水印内容")
+            return
+        offset_ratio = self._offset_ratio()
+        ok, fail = export_batch(
+            self.images,
+            text=text,
+            font_size=self.preview.font_size,
+            color_rgb=self.preview.color_rgb,
+            opacity=self.preview.opacity,
+            anchor=self.preview.anchor,
+            offset_ratio=offset_ratio,
+            settings=settings,
+        )
+        QMessageBox.information(self, "导出完成", f"成功 {ok} 张，失败 {fail} 张。文件保存在：\n{out_dir}")
 
     # ---------- 拖拽支持 ----------
     def dragEnterEvent(self, event: QDragEnterEvent):
