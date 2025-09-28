@@ -14,12 +14,13 @@ from __future__ import annotations
 import os
 from typing import List, Optional
 from PySide6.QtCore import Qt, QSize, QPoint
-from PySide6.QtGui import QAction, QPixmap, QDragEnterEvent, QDropEvent, QPainter, QColor
+from PySide6.QtGui import QAction, QPixmap, QIcon, QDragEnterEvent, QDropEvent, QPainter, QColor
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QListWidget, QListWidgetItem, QFileDialog,
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QSlider, QSplitter, QMessageBox, QSizePolicy, QGroupBox, QApplication
 )
 from PIL import Image, ImageQt, ImageDraw, ImageFont
+from ..core.image_loader import ImageLoader
 
 SUPPORTED_EXT = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
 
@@ -108,6 +109,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Photo Watermark 2 - 原型")
         self.resize(1400, 900)
         self.images: List[str] = []
+        self.loader = ImageLoader(thumb_size=(96, 96))
         self._build_ui()
         self.setAcceptDrops(True)
 
@@ -120,6 +122,7 @@ class MainWindow(QMainWindow):
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         self.list_widget = QListWidget()
+        self.list_widget.setIconSize(QSize(96, 96))
         self.list_widget.itemSelectionChanged.connect(self.on_selection_change)
         btn_add = QPushButton("导入图片/文件夹")
         btn_add.clicked.connect(self.import_images_dialog)
@@ -175,7 +178,17 @@ class MainWindow(QMainWindow):
                     self.images.append(p)
                     new_files.append(p)
         for f in new_files:
-            item = QListWidgetItem(os.path.basename(f))
+            # 生成缩略图并设置为图标
+            try:
+                thumb = self.loader.get_thumbnail(f)
+                qimg = ImageQt.ImageQt(thumb)
+                pix = QPixmap.fromImage(qimg)
+                item = QListWidgetItem()
+                item.setText(os.path.basename(f))
+                item.setIcon(QIcon(pix))
+            except Exception:
+                # 缩略图失败，使用纯文本
+                item = QListWidgetItem(os.path.basename(f))
             item.setData(Qt.ItemDataRole.UserRole, f)
             self.list_widget.addItem(item)
         if new_files and not self.preview.pixmap():
