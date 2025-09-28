@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from typing import List, Optional
 from PySide6.QtCore import Qt, QSize, QPoint
-from PySide6.QtGui import QAction, QPixmap, QIcon, QDragEnterEvent, QDropEvent, QPainter, QColor
+from PySide6.QtGui import QAction, QPixmap, QIcon, QDragEnterEvent, QDropEvent, QPainter, QColor, QFont, QFontMetrics, QImage
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QListWidget, QListWidgetItem, QFileDialog,
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QSlider, QSplitter, QMessageBox, QSizePolicy, QGroupBox, QApplication,
@@ -80,36 +80,33 @@ class PreviewLabel(QLabel):
             self.setText("未选择图片")
             return
         img = self._pil_base.copy()
-        draw = ImageDraw.Draw(img)
-        # 字体（尽量使用 TrueType，以便字号生效；找不到则退回位图字体）
-        font = self._get_font(self.font_size)
         text = self.watermark_text or ""
         if text:
-            # 放右下角简单实现；后续加入九宫格/拖拽
-            # Pillow 10 起移除了 textsize，优先使用 textbbox
-            def _measure_text(draw_obj, text_str, fnt):
-                try:
-                    bbox = draw_obj.textbbox((0, 0), text_str, font=fnt)
-                    return bbox[2] - bbox[0], bbox[3] - bbox[1]
-                except Exception:
-                    try:
-                        # 某些版本可用 font.getbbox
-                        bbox = fnt.getbbox(text_str)
-                        return bbox[2] - bbox[0], bbox[3] - bbox[1]
-                    except Exception:
-                        try:
-                            # 兜底方案：使用掩码尺寸
-                            return fnt.getmask(text_str).size
-                        except Exception:
-                            return 0, 0
-
-            tw, th = _measure_text(draw, text, font)
+            # 使用 Qt 字体绘制，跨平台确保字号生效
+            qfont = QFont()
+            qfont.setPointSize(int(max(6, min(400, self.font_size))))
+            fm = QFontMetrics(qfont)
+            tw = max(1, fm.horizontalAdvance(text))
+            th = max(1, fm.height())
             # 计算九宫格锚点位置
             ax, ay = self._anchor_pos(img.width, img.height, tw, th, self.anchor)
             x = int(ax + self.offset.x())
             y = int(ay + self.offset.y())
-            rgba = (*self.color_rgb, int(255 * self.opacity))
-            img = compose_text_watermark(img, text=text, font=font, color_rgba=rgba, pos_xy=(x, y))
+            # 生成文本 QImage
+            qimg = QImage(tw, th, QImage.Format.Format_ARGB32_Premultiplied)
+            qimg.fill(0)
+            painter = QPainter(qimg)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setPen(QColor(self.color_rgb[0], self.color_rgb[1], self.color_rgb[2], int(255 * self.opacity)))
+            painter.setFont(qfont)
+            # 在基线处绘制，以获得完整高度
+            painter.drawText(0, fm.ascent(), text)
+            painter.end()
+            # 转为 PIL 并合成
+            text_pil = ImageQt.fromqimage(qimg).convert("RGBA")
+            layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            layer.paste(text_pil, (x, y), text_pil)
+            img = Image.alpha_composite(img, layer)
         qimg = ImageQt.ImageQt(img)
         self._composed_qpix = QPixmap.fromImage(qimg)
         self.setPixmap(self._composed_qpix)
@@ -341,6 +338,8 @@ class MainWindow(QMainWindow):
             self.preview.set_watermark(text, self.opacity_slider.value()/100.0, color_rgb=rgb)
 
     def on_anchor_change(self, anchor: str):
+        # 切换预设位置时，重置手动偏移，避免叠加
+        self.preview.offset = QPoint(-16, -16)
         text = self.text_edit.toPlainText().strip()
         self.preview.set_watermark(text, self.opacity_slider.value()/100.0, anchor=anchor)
 
