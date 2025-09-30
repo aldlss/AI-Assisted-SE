@@ -13,7 +13,7 @@
 from __future__ import annotations
 import os
 from typing import List, Optional
-from PySide6.QtCore import Qt, QSize, QPoint, QTimer
+from PySide6.QtCore import Qt, QSize, QPoint, QTimer, Signal
 from PySide6.QtGui import QAction, QPixmap, QIcon, QDragEnterEvent, QDropEvent, QPainter, QColor, QFont, QFontMetrics, QImage
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QListWidget, QListWidgetItem, QFileDialog,
@@ -28,32 +28,37 @@ from ..core.exporter import export_batch, ExportSettings
 SUPPORTED_EXT = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
 
 class PreviewLabel(QLabel):
-    """用于显示预览图的标签。后续可扩展鼠标事件实现拖拽水印。"""
+    """用于显示预览图的标签，支持文本/图片水印与拖拽定位。"""
+    # 预览内调整缩放时对外通知（用于同步右侧 SpinBox）
+    scaleChanged = Signal(int)
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("background:#222; border:1px solid #444;")
         self._base_qpix: Optional[QPixmap] = None
         self._composed_qpix: Optional[QPixmap] = None
-        # 文本水印参数（去除方法内类型批注，避免解析器告警）
+        # 文本水印参数
         self.watermark_text = "示例水印"
-        self.opacity = 0.5  # 0~1
+        self.opacity = 0.5
         self.font_size = 32
         self.color_rgb = (255, 255, 255)
-        self.anchor = "bottom-right"  # 九宫格锚点
-        self.offset = QPoint(-16, -16)  # 相对锚点偏移
+        self.anchor = "bottom-right"
+        self.offset = QPoint(-16, -16)
         self._dragging = False
         self._drag_start = QPoint(0, 0)
-        # 字体解析缓存
+        # 字体缓存
         self._font_cache = {}
-        self._font_path = None  # 解析到的可用 TTF 路径
+        self._font_path = None
+        # 图片水印参数
+        self.wm_mode = 'text'  # 'text' | 'image'
+        self.wm_image_pil = None
+        self.wm_scale = 20
 
     def load_image(self, path: str):
         if not os.path.isfile(path):
             return
         try:
             img = Image.open(path)
-            # 适度缩放到预览大小
             max_w, max_h = 900, 700
             ratio = min(max_w / img.width, max_h / img.height, 1.0)
             if ratio < 1:
@@ -75,60 +80,109 @@ class PreviewLabel(QLabel):
             self.anchor = anchor
         self.update_composite()
 
+    def set_watermark_mode(self, mode: str):
+        if mode in ('text', 'image'):
+            self.wm_mode = mode
+            self.update_composite()
+
+    def set_image_watermark(self, path: Optional[str] = None, scale: Optional[int] = None):
+        if path:
+            try:
+                img = Image.open(path).convert('RGBA')
+                self.wm_image_pil = img
+            except Exception:
+                self.wm_image_pil = None
+        if scale is not None:
+            self.wm_scale = max(1, min(400, int(scale)))
+        self.update_composite()
+
     def update_composite(self):
         if not hasattr(self, '_pil_base'):
             self.clear()
             self.setText("未选择图片")
             return
         img = self._pil_base.copy()
-        text = self.watermark_text or ""
-        if text:
-            # 使用 Qt 字体绘制，跨平台确保字号生效
-            # 采用像素字号
-            eff_px = int(max(6, min(400, self.font_size)))
-            qfont = QFont()
-            qfont.setPixelSize(eff_px)
-            fm = QFontMetrics(qfont)
-            tw = max(1, fm.horizontalAdvance(text))
-            th = max(1, fm.height())
-            # 计算九宫格锚点位置
+        if self.wm_mode == 'image' and self.wm_image_pil is not None:
+            wm = self.wm_image_pil.copy()
+            target_w = max(1, int(img.width * self.wm_scale / 100.0))
+            ratio = target_w / wm.width
+            wm = wm.resize((target_w, max(1, int(wm.height * ratio))), Image.LANCZOS)
+            if self.opacity < 1.0:
+                if wm.mode != 'RGBA':
+                    wm = wm.convert('RGBA')
+                r, g, b, a = wm.split()
+                a = a.point(lambda v: int(v * self.opacity))
+                wm = Image.merge('RGBA', (r, g, b, a))
+            tw, th = wm.width, wm.height
             ax, ay = self._anchor_pos(img.width, img.height, tw, th, self.anchor)
             x = int(ax + self.offset.x())
             y = int(ay + self.offset.y())
-            # 生成文本 QImage
-            qimg = QImage(tw, th, QImage.Format.Format_ARGB32_Premultiplied)
-            qimg.fill(0)
-            painter = QPainter(qimg)
-            painter.setRenderHint(QPainter.Antialiasing, True)
-            painter.setRenderHint(QPainter.TextAntialiasing, True)
-            painter.setPen(QColor(self.color_rgb[0], self.color_rgb[1], self.color_rgb[2], int(255 * self.opacity)))
-            painter.setFont(qfont)
-            # 在基线处绘制，以获得完整高度
-            painter.drawText(0, fm.ascent(), text)
-            painter.end()
-            # 转为 PIL 并合成
-            text_pil = ImageQt.fromqimage(qimg).convert("RGBA")
-            layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            layer.paste(text_pil, (x, y), text_pil)
+            layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
+            layer.paste(wm, (x, y), wm)
             img = Image.alpha_composite(img, layer)
+        else:
+            text = self.watermark_text or ""
+            if text:
+                eff_px = int(max(6, min(400, self.font_size)))
+                qfont = QFont(); qfont.setPixelSize(eff_px)
+                fm = QFontMetrics(qfont)
+                tw = max(1, fm.horizontalAdvance(text))
+                th = max(1, fm.height())
+                ax, ay = self._anchor_pos(img.width, img.height, tw, th, self.anchor)
+                x = int(ax + self.offset.x())
+                y = int(ay + self.offset.y())
+                qimg = QImage(tw, th, QImage.Format.Format_ARGB32_Premultiplied)
+                qimg.fill(0)
+                painter = QPainter(qimg)
+                painter.setRenderHint(QPainter.Antialiasing, True)
+                painter.setRenderHint(QPainter.TextAntialiasing, True)
+                painter.setPen(QColor(self.color_rgb[0], self.color_rgb[1], self.color_rgb[2], int(255 * self.opacity)))
+                painter.setFont(qfont)
+                painter.drawText(0, fm.ascent(), text)
+                painter.end()
+                text_pil = ImageQt.fromqimage(qimg).convert("RGBA")
+                layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                layer.paste(text_pil, (x, y), text_pil)
+                img = Image.alpha_composite(img, layer)
         qimg = ImageQt.ImageQt(img)
         self._composed_qpix = QPixmap.fromImage(qimg)
         self.setPixmap(self._composed_qpix)
+
+    def wheelEvent(self, e):
+        # 在图片水印模式下，滚轮直接调整缩放百分比；Ctrl=精细(1%)，Shift=粗调(10%)，默认5%
+        if self.wm_mode == 'image' and self.wm_image_pil is not None:
+            delta = e.angleDelta().y()
+            if delta == 0:
+                return
+            mods = e.modifiers()
+            step = 5
+            if mods & Qt.KeyboardModifier.ControlModifier:
+                step = 1
+            elif mods & Qt.KeyboardModifier.ShiftModifier:
+                step = 10
+            change = step if delta > 0 else -step
+            new_scale = max(1, min(400, int(self.wm_scale + change)))
+            if new_scale != self.wm_scale:
+                self.wm_scale = new_scale
+                self.update_composite()
+                try:
+                    self.scaleChanged.emit(int(self.wm_scale))
+                except Exception:
+                    pass
+            e.accept()
+        else:
+            super().wheelEvent(e)
 
     def _get_font(self, size: int):
         key = (self._font_path, int(size))
         if key in self._font_cache:
             return self._font_cache[key]
-        # 若尚未解析到字体路径，尝试常见系统路径
         if self._font_path is None:
             candidates = [
-                # Linux 常见路径（DejaVu）
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                 "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-                # macOS 常见路径（Arial/Helvetica 替代）
                 "/Library/Fonts/Arial.ttf",
                 "/System/Library/Fonts/Supplemental/Arial.ttf",
-                # Windows 常见路径
                 "C:/Windows/Fonts/arial.ttf",
             ]
             for p in candidates:
@@ -142,13 +196,11 @@ class PreviewLabel(QLabel):
             if self._font_path:
                 f = ImageFont.truetype(self._font_path, max(6, int(size)))
             else:
-                # 直接尝试通用字体名（部分环境可解析）
                 try:
                     f = ImageFont.truetype("DejaVuSans.ttf", max(6, int(size)))
                 except Exception:
                     f = ImageFont.truetype("arial.ttf", max(6, int(size)))
         except Exception:
-            # 最后退回位图字体（不支持变更字号）
             f = ImageFont.load_default()
         self._font_cache[key] = f
         return f
@@ -168,7 +220,6 @@ class PreviewLabel(QLabel):
         }
         return mapping.get(anchor, mapping["bottom-right"])  # 默认右下
 
-    # 鼠标拖拽更新 offset
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton and hasattr(self, '_pil_base'):
             self._dragging = True
@@ -193,6 +244,8 @@ class PreviewLabel(QLabel):
             e.accept()
         else:
             super().mouseReleaseEvent(e)
+
+    
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -220,12 +273,9 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(btn_add)
         # 移除/清空
         rm_row = QHBoxLayout()
-        btn_remove = QPushButton("移除所选")
-        btn_remove.clicked.connect(self.remove_selected_images)
-        btn_clear = QPushButton("清空列表")
-        btn_clear.clicked.connect(self.clear_all_images)
-        rm_row.addWidget(btn_remove)
-        rm_row.addWidget(btn_clear)
+        btn_remove = QPushButton("移除所选"); btn_remove.clicked.connect(self.remove_selected_images)
+        btn_clear = QPushButton("清空列表"); btn_clear.clicked.connect(self.clear_all_images)
+        rm_row.addWidget(btn_remove); rm_row.addWidget(btn_clear)
         left_layout.addLayout(rm_row)
         # 列表多选与快捷删除
         self.list_widget.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
@@ -243,87 +293,73 @@ class MainWindow(QMainWindow):
         # 右：水印设置面板
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
-        group = QGroupBox("文本水印设置（基础）")
+        group = QGroupBox("水印设置")
         g_layout = QVBoxLayout(group)
-        self.text_edit = QTextEdit()
-        self.text_edit.setPlaceholderText("输入水印文本…")
+        # 水印类型
+        type_row = QHBoxLayout()
+        self.wm_type_combo = QComboBox(); self.wm_type_combo.addItems(["文本", "图片"])
+        self.wm_type_combo.currentTextChanged.connect(self.on_wm_type_change)
+        type_row.addWidget(QLabel("水印类型：")); type_row.addWidget(self.wm_type_combo)
+        g_layout.addLayout(type_row)
+        # 文本水印控件
+        self.text_edit = QTextEdit(); self.text_edit.setPlaceholderText("输入水印文本…")
         self.text_edit.textChanged.connect(self.on_text_change)
-        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
-        self.opacity_slider.setRange(0, 100)
-        self.opacity_slider.setValue(50)
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal); self.opacity_slider.setRange(0, 100); self.opacity_slider.setValue(50)
         self.opacity_slider.valueChanged.connect(self.on_opacity_change)
-        # 字号
-        self.font_size_spin = QSpinBox()
-        self.font_size_spin.setRange(6, 400)
-        self.font_size_spin.setValue(32)
+        self.font_size_spin = QSpinBox(); self.font_size_spin.setRange(6, 400); self.font_size_spin.setValue(32)
         self.font_size_spin.valueChanged.connect(self.on_font_size_change)
-        # 颜色
         color_row = QHBoxLayout()
-        self.btn_color = QPushButton("选择颜色…")
-        self.btn_color.clicked.connect(self.on_pick_color)
-        self.lbl_color = QLabel("#FFFFFF")
-        color_row.addWidget(self.btn_color)
-        color_row.addWidget(self.lbl_color)
-        # 九宫格预设
+        self.btn_color = QPushButton("选择颜色…"); self.btn_color.clicked.connect(self.on_pick_color)
+        self.lbl_color = QLabel("#FFFFFF"); color_row.addWidget(self.btn_color); color_row.addWidget(self.lbl_color)
         self.anchor_combo = QComboBox()
-        self.anchor_combo.addItems([
-            "top-left","top-center","top-right",
-            "middle-left","center","middle-right",
-            "bottom-left","bottom-center","bottom-right"
-        ])
-        self.anchor_combo.setCurrentText("bottom-right")
-        self.anchor_combo.currentTextChanged.connect(self.on_anchor_change)
-        g_layout.addWidget(QLabel("水印文本："))
-        g_layout.addWidget(self.text_edit)
-        g_layout.addWidget(QLabel("透明度："))
-        g_layout.addWidget(self.opacity_slider)
-        g_layout.addWidget(QLabel("字号："))
-        g_layout.addWidget(self.font_size_spin)
-        g_layout.addWidget(QLabel("颜色："))
-        g_layout.addLayout(color_row)
-        g_layout.addWidget(QLabel("位置预设："))
-        g_layout.addWidget(self.anchor_combo)
+        self.anchor_combo.addItems(["top-left","top-center","top-right","middle-left","center","middle-right","bottom-left","bottom-center","bottom-right"])
+        self.anchor_combo.setCurrentText("bottom-right"); self.anchor_combo.currentTextChanged.connect(self.on_anchor_change)
+        # 图片水印控件
+        img_row1 = QHBoxLayout()
+        self.wm_img_path = QLineEdit(); self.wm_img_path.setPlaceholderText("选择 PNG/JPG 作为水印…")
+        self.wm_img_btn = QPushButton("选择水印图片…"); self.wm_img_btn.clicked.connect(self.on_pick_wm_image)
+        img_row1.addWidget(self.wm_img_path); img_row1.addWidget(self.wm_img_btn)
+        img_row2 = QHBoxLayout()
+        self.wm_scale_spin = QSpinBox(); self.wm_scale_spin.setRange(1, 400); self.wm_scale_spin.setValue(20)
+        self.wm_scale_spin.valueChanged.connect(self.on_wm_scale_change)
+        img_row2.addWidget(QLabel("水印缩放（% 宽）：")); img_row2.addWidget(self.wm_scale_spin)
+        # 装配
+        g_layout.addWidget(QLabel("水印文本：")); g_layout.addWidget(self.text_edit)
+        g_layout.addWidget(QLabel("透明度：")); g_layout.addWidget(self.opacity_slider)
+        g_layout.addWidget(QLabel("字号：")); g_layout.addWidget(self.font_size_spin)
+        g_layout.addWidget(QLabel("颜色：")); g_layout.addLayout(color_row)
+        g_layout.addWidget(QLabel("位置预设：")); g_layout.addWidget(self.anchor_combo)
+        g_layout.addLayout(img_row1); g_layout.addLayout(img_row2)
         right_layout.addWidget(group)
+        # 根据当前模式初始化控件启用状态
+        self._toggle_watermark_controls()
+        # 同步：预览滚轮缩放 -> SpinBox
+        try:
+            self.preview.scaleChanged.connect(self.wm_scale_spin.setValue)
+        except Exception:
+            pass
+
         # 导出面板
         exp = QGroupBox("导出")
         exp_l = QVBoxLayout(exp)
-        # 输出目录
         out_row = QHBoxLayout()
-        self.out_dir_edit = QLineEdit()
-        self.out_dir_btn = QPushButton("选择输出目录…")
-        self.out_dir_btn.clicked.connect(self.on_pick_out_dir)
-        out_row.addWidget(self.out_dir_edit)
-        out_row.addWidget(self.out_dir_btn)
-        # 命名规则
+        self.out_dir_edit = QLineEdit(); self.out_dir_btn = QPushButton("选择输出目录…"); self.out_dir_btn.clicked.connect(self.on_pick_out_dir)
+        out_row.addWidget(self.out_dir_edit); out_row.addWidget(self.out_dir_btn)
         name_row = QHBoxLayout()
-        self.name_rule = QComboBox(); self.name_rule.addItems(["keep","prefix","suffix"])
-        self.prefix_edit = QLineEdit(); self.prefix_edit.setPlaceholderText("前缀，如 wm_")
+        self.name_rule = QComboBox(); self.name_rule.addItems(["keep","prefix","suffix"]) ; self.prefix_edit = QLineEdit(); self.prefix_edit.setPlaceholderText("前缀，如 wm_")
         self.suffix_edit = QLineEdit(); self.suffix_edit.setPlaceholderText("后缀，如 _watermarked")
-        name_row.addWidget(QLabel("命名："))
-        name_row.addWidget(self.name_rule)
-        name_row.addWidget(self.prefix_edit)
-        name_row.addWidget(self.suffix_edit)
-        # 格式和质量
+        name_row.addWidget(QLabel("命名：")); name_row.addWidget(self.name_rule); name_row.addWidget(self.prefix_edit); name_row.addWidget(self.suffix_edit)
         fmt_row = QHBoxLayout()
         self.fmt_combo = QComboBox(); self.fmt_combo.addItems(["png","jpeg"]) ; self.fmt_combo.setCurrentText("png")
         self.quality = QSpinBox(); self.quality.setRange(1,100); self.quality.setValue(90)
-        fmt_row.addWidget(QLabel("格式：")); fmt_row.addWidget(self.fmt_combo)
-        fmt_row.addWidget(QLabel("JPEG质量：")); fmt_row.addWidget(self.quality)
-        # 尺寸调整
+        fmt_row.addWidget(QLabel("格式：")); fmt_row.addWidget(self.fmt_combo); fmt_row.addWidget(QLabel("JPEG质量：")); fmt_row.addWidget(self.quality)
         resize_row = QHBoxLayout()
         self.resize_mode = QComboBox(); self.resize_mode.addItems(["none","width","height","percent"]) ; self.resize_mode.setCurrentText("none")
         self.resize_value = QSpinBox(); self.resize_value.setRange(1, 10000); self.resize_value.setValue(100)
         resize_row.addWidget(QLabel("缩放：")); resize_row.addWidget(self.resize_mode); resize_row.addWidget(self.resize_value)
-        # 导出按钮
-        self.btn_export = QPushButton("批量导出…")
-        self.btn_export.clicked.connect(self.on_export)
-        exp_l.addLayout(out_row)
-        exp_l.addLayout(name_row)
-        exp_l.addLayout(fmt_row)
-        exp_l.addLayout(resize_row)
-        exp_l.addWidget(self.btn_export)
-        right_layout.addWidget(exp)
-        right_layout.addStretch(1)
+        self.btn_export = QPushButton("批量导出…"); self.btn_export.clicked.connect(self.on_export)
+        exp_l.addLayout(out_row); exp_l.addLayout(name_row); exp_l.addLayout(fmt_row); exp_l.addLayout(resize_row); exp_l.addWidget(self.btn_export)
+        right_layout.addWidget(exp); right_layout.addStretch(1)
 
         splitter.addWidget(left_widget)
         splitter.addWidget(self.preview)
@@ -332,13 +368,8 @@ class MainWindow(QMainWindow):
 
         # 菜单占位
         file_menu = self.menuBar().addMenu("文件")
-        act_import = QAction("导入…", self)
-        act_import.triggered.connect(self.import_images_dialog)
-        file_menu.addAction(act_import)
-        # 快捷导出
-        act_export = QAction("批量导出…", self)
-        act_export.triggered.connect(self.on_export)
-        file_menu.addAction(act_export)
+        act_import = QAction("导入…", self); act_import.triggered.connect(self.import_images_dialog); file_menu.addAction(act_import)
+        act_export = QAction("批量导出…", self); act_export.triggered.connect(self.on_export); file_menu.addAction(act_export)
 
     # ---------- 功能：导入 ----------
     def import_images_dialog(self):
@@ -415,6 +446,21 @@ class MainWindow(QMainWindow):
         val = self.opacity_slider.value()/100.0
         QTimer.singleShot(0, lambda a=anchor, t=text, v=val: self.preview.set_watermark(t, v, anchor=a))
 
+    def on_wm_type_change(self, t: str):
+        mode = 'text' if t == '文本' else 'image'
+        self.preview.set_watermark_mode(mode)
+        self._toggle_watermark_controls()
+
+    def on_pick_wm_image(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择水印图片", os.getcwd(), "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)")
+        if not path:
+            return
+        self.wm_img_path.setText(path)
+        self.preview.set_image_watermark(path=path)
+
+    def on_wm_scale_change(self, v: int):
+        self.preview.set_image_watermark(scale=v)
+
     # （已移除“字号百分比模式”，保留纯像素字号）
 
     def on_pick_out_dir(self):
@@ -473,9 +519,15 @@ class MainWindow(QMainWindow):
             resize_value=resize_value,
         )
         text = self.text_edit.toPlainText().strip()
-        if not text:
-            QMessageBox.warning(self, "水印内容", "请输入文本水印内容")
-            return
+        # 校验所需字段
+        if getattr(self.preview, 'wm_mode', 'text') == 'text':
+            if not text:
+                QMessageBox.warning(self, "水印内容", "请输入文本水印内容")
+                return
+        else:
+            if not self.preview.wm_image_pil:
+                QMessageBox.warning(self, "水印图片", "请选择水印图片文件")
+                return
         offset_ratio = self._offset_ratio()
         # 改为直接按“预览所见”渲染导出，确保所见即所得。
         # 如果有多选则导出所选；否则导出全部列表。
@@ -587,44 +639,60 @@ class MainWindow(QMainWindow):
                 (int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS
             )
         img = img.convert("RGBA")
+        if getattr(self.preview, 'wm_mode', 'text') == 'image' and self.preview.wm_image_pil is not None:
+            wm = self.preview.wm_image_pil.copy()
+            target_w = max(1, int(img.width * getattr(self.preview, 'wm_scale', 20) / 100.0))
+            ratio = target_w / wm.width
+            wm = wm.resize((target_w, max(1, int(wm.height * ratio))), Image.LANCZOS)
+            if getattr(self.preview, 'opacity', 0.5) < 1.0:
+                if wm.mode != 'RGBA':
+                    wm = wm.convert('RGBA')
+                r, g, b, a = wm.split()
+                a = a.point(lambda v: int(v * getattr(self.preview, 'opacity', 0.5)))
+                wm = Image.merge('RGBA', (r, g, b, a))
+            tw, th = wm.width, wm.height
+            ax, ay = self.preview._anchor_pos(img.width, img.height, tw, th, getattr(self.preview, 'anchor', 'bottom-right'))
+            x = int(ax + self.preview.offset.x())
+            y = int(ay + self.preview.offset.y())
+            layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
+            layer.paste(wm, (x, y), wm)
+            return Image.alpha_composite(img, layer)
+        else:
+            eff_px = int(max(6, min(400, getattr(self.preview, 'font_size', 32))))
+            qfont = QFont(); qfont.setPixelSize(eff_px)
+            fm = QFontMetrics(qfont)
+            tw = max(1, fm.horizontalAdvance(text or ""))
+            th = max(1, fm.height())
+            ax, ay = self.preview._anchor_pos(img.width, img.height, tw, th, getattr(self.preview, 'anchor', 'bottom-right'))
+            x = int(ax + self.preview.offset.x())
+            y = int(ay + self.preview.offset.y())
+            qimg = QImage(tw, th, QImage.Format.Format_ARGB32_Premultiplied)
+            qimg.fill(0)
+            painter = QPainter(qimg)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setRenderHint(QPainter.TextAntialiasing, True)
+            r, g, b = getattr(self.preview, 'color_rgb', (255, 255, 255))
+            alpha = int(255 * getattr(self.preview, 'opacity', 0.5))
+            painter.setPen(QColor(r, g, b, alpha))
+            painter.setFont(qfont)
+            painter.drawText(0, fm.ascent(), text or "")
+            painter.end()
+            text_pil = ImageQt.fromqimage(qimg).convert('RGBA')
+            layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
+            layer.paste(text_pil, (x, y), text_pil)
+            return Image.alpha_composite(img, layer)
 
-        # 字体像素大小：与预览相同逻辑（支持当前控件的像素字号或百分比字号）
-        eff_px = int(max(6, min(400, getattr(self.preview, "font_size", 32))))
-        qfont = QFont()
-        qfont.setPixelSize(eff_px)
-        fm = QFontMetrics(qfont)
-        tw = max(1, fm.horizontalAdvance(text or ""))
-        th = max(1, fm.height())
-
-        # 计算锚点 + 偏移（复用预览的算法与当前偏移）
-        ax, ay = self.preview._anchor_pos(
-            img.width,
-            img.height,
-            tw,
-            th,
-            getattr(self.preview, "anchor", "bottom-right"),
-        )
-        x = int(ax + self.preview.offset.x())
-        y = int(ay + self.preview.offset.y())
-
-        # 生成文本图层（Qt 渲染以保持效果一致）
-        qimg = QImage(tw, th, QImage.Format.Format_ARGB32_Premultiplied)
-        qimg.fill(0)
-        painter = QPainter(qimg)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setRenderHint(QPainter.TextAntialiasing, True)
-        r, g, b = getattr(self.preview, "color_rgb", (255, 255, 255))
-        alpha = int(255 * getattr(self.preview, "opacity", 0.5))
-        painter.setPen(QColor(r, g, b, alpha))
-        painter.setFont(qfont)
-        painter.drawText(0, fm.ascent(), text or "")
-        painter.end()
-
-        text_pil = ImageQt.fromqimage(qimg).convert("RGBA")
-        layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        layer.paste(text_pil, (x, y), text_pil)
-        out = Image.alpha_composite(img, layer)
-        return out
+    def _toggle_watermark_controls(self):
+        # 根据水印类型启用/禁用控件
+        is_text = (self.wm_type_combo.currentText() == '文本')
+        # 文本相关
+        self.text_edit.setEnabled(is_text)
+        self.font_size_spin.setEnabled(is_text)
+        self.btn_color.setEnabled(is_text)
+        # 图片相关
+        self.wm_img_path.setEnabled(not is_text)
+        self.wm_img_btn.setEnabled(not is_text)
+        self.wm_scale_spin.setEnabled(not is_text)
 
     def _build_output_path(self, src_path: str, settings: ExportSettings) -> str:
         base = os.path.basename(src_path)
