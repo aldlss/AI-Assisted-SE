@@ -85,7 +85,7 @@ class PreviewLabel(QLabel):
         if text:
             # 使用 Qt 字体绘制，跨平台确保字号生效
             qfont = QFont()
-            qfont.setPointSize(int(max(6, min(400, self.font_size))))
+            qfont.setPixelSize(int(max(6, min(400, self.font_size))))
             fm = QFontMetrics(qfont)
             tw = max(1, fm.horizontalAdvance(text))
             th = max(1, fm.height())
@@ -98,6 +98,7 @@ class PreviewLabel(QLabel):
             qimg.fill(0)
             painter = QPainter(qimg)
             painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setRenderHint(QPainter.TextAntialiasing, True)
             painter.setPen(QColor(self.color_rgb[0], self.color_rgb[1], self.color_rgb[2], int(255 * self.opacity)))
             painter.setFont(qfont)
             # 在基线处绘制，以获得完整高度

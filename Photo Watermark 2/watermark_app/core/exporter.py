@@ -48,7 +48,7 @@ def _apply_naming(path: str, settings: ExportSettings, out_ext: str) -> str:
 
 def _measure_text_qt(text: str, font_size: int) -> Tuple[int, int, int]:
     qfont = QFont()
-    qfont.setPointSize(int(max(6, min(400, font_size))))
+    qfont.setPixelSize(int(max(6, min(400, font_size))))
     fm = QFontMetrics(qfont)
     tw = max(1, fm.horizontalAdvance(text))
     th = max(1, fm.height())
@@ -61,9 +61,10 @@ def _render_text_image(text: str, font_size: int, color_rgb: Tuple[int, int, int
     qimg.fill(0)
     painter = QPainter(qimg)
     painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setRenderHint(QPainter.TextAntialiasing, True)
     painter.setPen(QColor(color_rgb[0], color_rgb[1], color_rgb[2], int(255*opacity)))
     qfont = QFont()
-    qfont.setPointSize(int(max(6, min(400, font_size))))
+    qfont.setPixelSize(int(max(6, min(400, font_size))))
     painter.setFont(qfont)
     painter.drawText(0, ascent, text)
     painter.end()
