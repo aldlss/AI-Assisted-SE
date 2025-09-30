@@ -215,6 +215,23 @@ class MainWindow(QMainWindow):
         btn_add = QPushButton("导入图片/文件夹")
         btn_add.clicked.connect(self.import_images_dialog)
         left_layout.addWidget(btn_add)
+        # 移除/清空
+        rm_row = QHBoxLayout()
+        btn_remove = QPushButton("移除所选")
+        btn_remove.clicked.connect(self.remove_selected_images)
+        btn_clear = QPushButton("清空列表")
+        btn_clear.clicked.connect(self.clear_all_images)
+        rm_row.addWidget(btn_remove)
+        rm_row.addWidget(btn_clear)
+        left_layout.addLayout(rm_row)
+        # 列表多选与快捷删除
+        self.list_widget.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        del_act = QAction("移除所选", self.list_widget)
+        del_act.setShortcut(Qt.Key.Key_Delete)
+        del_act.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        del_act.triggered.connect(self.remove_selected_images)
+        self.list_widget.addAction(del_act)
+        self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
         left_layout.addWidget(self.list_widget, 1)
 
         # 中：预览
@@ -351,6 +368,7 @@ class MainWindow(QMainWindow):
             self.list_widget.addItem(item)
         if new_files and not self.preview.pixmap():
             self.list_widget.setCurrentRow(0)
+        self._update_export_enabled()
 
     # ---------- 选择变化 ----------
     def on_selection_change(self):
@@ -465,6 +483,52 @@ class MainWindow(QMainWindow):
             settings=settings,
         )
         QMessageBox.information(self, "导出完成", f"成功 {ok} 张，失败 {fail} 张。文件保存在：\n{out_dir}")
+        # 导出后保持列表不变；如需清空可在此添加操作
+
+    # ---------- 列表管理 ----------
+    def remove_selected_images(self):
+        items = self.list_widget.selectedItems()
+        if not items:
+            QMessageBox.information(self, "提示", "请选择要移除的图片")
+            return
+        remove_paths = {it.data(Qt.ItemDataRole.UserRole) for it in items}
+        # 从模型中移除
+        self.images = [p for p in self.images if p not in remove_paths]
+        # 从视图中移除
+        for it in items:
+            row = self.list_widget.row(it)
+            self.list_widget.takeItem(row)
+        # 更新预览
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+        else:
+            if hasattr(self.preview, '_pil_base'):
+                try:
+                    delattr(self.preview, '_pil_base')
+                except Exception:
+                    pass
+            self.preview.update_composite()
+        self._update_export_enabled()
+
+    def clear_all_images(self):
+        if not self.images:
+            return
+        self.images.clear()
+        self.list_widget.clear()
+        if hasattr(self.preview, '_pil_base'):
+            try:
+                delattr(self.preview, '_pil_base')
+            except Exception:
+                pass
+        self.preview.update_composite()
+        self._update_export_enabled()
+
+    def _update_export_enabled(self):
+        # 没有图片时禁用导出按钮
+        try:
+            self.btn_export.setEnabled(bool(self.images))
+        except Exception:
+            pass
 
     # ---------- 拖拽支持 ----------
     def dragEnterEvent(self, event: QDragEnterEvent):
