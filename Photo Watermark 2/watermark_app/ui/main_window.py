@@ -84,8 +84,10 @@ class PreviewLabel(QLabel):
         text = self.watermark_text or ""
         if text:
             # 使用 Qt 字体绘制，跨平台确保字号生效
+            # 采用像素字号
+            eff_px = int(max(6, min(400, self.font_size)))
             qfont = QFont()
-            qfont.setPixelSize(int(max(6, min(400, self.font_size))))
+            qfont.setPixelSize(eff_px)
             fm = QFontMetrics(qfont)
             tw = max(1, fm.horizontalAdvance(text))
             th = max(1, fm.height())
@@ -413,6 +415,8 @@ class MainWindow(QMainWindow):
         val = self.opacity_slider.value()/100.0
         QTimer.singleShot(0, lambda a=anchor, t=text, v=val: self.preview.set_watermark(t, v, anchor=a))
 
+    # （已移除“字号百分比模式”，保留纯像素字号）
+
     def on_pick_out_dir(self):
         d = QFileDialog.getExistingDirectory(self, "选择输出目录", os.getcwd())
         if d:
@@ -473,16 +477,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "水印内容", "请输入文本水印内容")
             return
         offset_ratio = self._offset_ratio()
-        ok, fail = export_batch(
-            self.images,
-            text=text,
-            font_size=self.preview.font_size,
-            color_rgb=self.preview.color_rgb,
-            opacity=self.preview.opacity,
-            anchor=self.preview.anchor,
-            offset_ratio=offset_ratio,
-            settings=settings,
+        # 改为直接按“预览所见”渲染导出，确保所见即所得。
+        # 如果有多选则导出所选；否则导出全部列表。
+        selected_items = self.list_widget.selectedItems()
+        target_paths = (
+            [it.data(Qt.ItemDataRole.UserRole) for it in selected_items]
+            if selected_items
+            else list(self.images)
         )
+        ok, fail = self._export_preview_like_batch(target_paths, text, settings)
         QMessageBox.information(self, "导出完成", f"成功 {ok} 张，失败 {fail} 张。文件保存在：\n{out_dir}")
         # 导出后保持列表不变；如需清空可在此添加操作
 
@@ -530,6 +533,124 @@ class MainWindow(QMainWindow):
             self.btn_export.setEnabled(bool(self.images))
         except Exception:
             pass
+
+    # ---------- 预览等效渲染与导出 ----------
+    def _export_preview_like_batch(
+        self, paths: List[str], text: str, settings: ExportSettings
+    ) -> tuple[int, int]:
+        ok = fail = 0
+        for p in paths:
+            try:
+                img = self._compose_preview_like(p, text)
+                # 可选尺寸调整（在预览图基础上）
+                if settings.resize_mode and settings.resize_value:
+                    mode = settings.resize_mode
+                    val = int(settings.resize_value)
+                    if mode == "width":
+                        ratio = val / img.width
+                        new_size = (val, max(1, int(img.height * ratio)))
+                        img = img.resize(new_size, Image.LANCZOS)
+                    elif mode == "height":
+                        ratio = val / img.height
+                        new_size = (max(1, int(img.width * ratio)), val)
+                        img = img.resize(new_size, Image.LANCZOS)
+                    elif mode == "percent":
+                        ratio = max(1, val) / 100.0
+                        new_size = (
+                            max(1, int(img.width * ratio)),
+                            max(1, int(img.height * ratio)),
+                        )
+                        img = img.resize(new_size, Image.LANCZOS)
+                # 保存
+                out_path = self._build_output_path(p, settings)
+                self._ensure_parent_dir(out_path)
+                fmt = settings.fmt.lower()
+                if fmt == "jpeg" or fmt == "jpg":
+                    img_rgb = img.convert("RGB")
+                    save_kwargs = {"quality": int(settings.jpeg_quality)}
+                    img_rgb.save(out_path, format="JPEG", **save_kwargs)
+                else:
+                    img.save(out_path, format="PNG")
+                ok += 1
+            except Exception:
+                fail += 1
+        return ok, fail
+
+    def _compose_preview_like(self, path: str, text: str) -> Image.Image:
+        """按与预览一致的规则渲染水印，返回合成后的 PIL Image（RGBA）。"""
+        # 载入与预览相同的缩放策略
+        img = Image.open(path)
+        max_w, max_h = 900, 700
+        ratio = min(max_w / img.width, max_h / img.height, 1.0)
+        if ratio < 1:
+            img = img.resize(
+                (int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS
+            )
+        img = img.convert("RGBA")
+
+        # 字体像素大小：与预览相同逻辑（支持当前控件的像素字号或百分比字号）
+        eff_px = int(max(6, min(400, getattr(self.preview, "font_size", 32))))
+        qfont = QFont()
+        qfont.setPixelSize(eff_px)
+        fm = QFontMetrics(qfont)
+        tw = max(1, fm.horizontalAdvance(text or ""))
+        th = max(1, fm.height())
+
+        # 计算锚点 + 偏移（复用预览的算法与当前偏移）
+        ax, ay = self.preview._anchor_pos(
+            img.width,
+            img.height,
+            tw,
+            th,
+            getattr(self.preview, "anchor", "bottom-right"),
+        )
+        x = int(ax + self.preview.offset.x())
+        y = int(ay + self.preview.offset.y())
+
+        # 生成文本图层（Qt 渲染以保持效果一致）
+        qimg = QImage(tw, th, QImage.Format.Format_ARGB32_Premultiplied)
+        qimg.fill(0)
+        painter = QPainter(qimg)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        r, g, b = getattr(self.preview, "color_rgb", (255, 255, 255))
+        alpha = int(255 * getattr(self.preview, "opacity", 0.5))
+        painter.setPen(QColor(r, g, b, alpha))
+        painter.setFont(qfont)
+        painter.drawText(0, fm.ascent(), text or "")
+        painter.end()
+
+        text_pil = ImageQt.fromqimage(qimg).convert("RGBA")
+        layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        layer.paste(text_pil, (x, y), text_pil)
+        out = Image.alpha_composite(img, layer)
+        return out
+
+    def _build_output_path(self, src_path: str, settings: ExportSettings) -> str:
+        base = os.path.basename(src_path)
+        stem, _ = os.path.splitext(base)
+        rule = settings.name_rule
+        if rule == "prefix":
+            stem = f"{settings.prefix or ''}{stem}"
+        elif rule == "suffix":
+            stem = f"{stem}{settings.suffix or ''}"
+        ext = ".jpg" if settings.fmt.lower() in ("jpeg", "jpg") else ".png"
+        out_dir = settings.output_dir
+        # 避免重名覆盖
+        candidate = os.path.join(out_dir, stem + ext)
+        if not os.path.exists(candidate):
+            return candidate
+        i = 1
+        while True:
+            c = os.path.join(out_dir, f"{stem}({i}){ext}")
+            if not os.path.exists(c):
+                return c
+            i += 1
+
+    def _ensure_parent_dir(self, path: str):
+        d = os.path.dirname(path)
+        if d and not os.path.isdir(d):
+            os.makedirs(d, exist_ok=True)
 
     # ---------- 拖拽支持 ----------
     def dragEnterEvent(self, event: QDragEnterEvent):
