@@ -53,6 +53,8 @@ class PreviewLabel(QLabel):
         self.wm_mode = 'text'  # 'text' | 'image'
         self.wm_image_pil = None
         self.wm_scale = 20
+        # 通用旋转角度（度数，-180~180，文本/图片通用）
+        self.rotation = 0
 
     def load_image(self, path: str):
         if not os.path.isfile(path):
@@ -96,6 +98,17 @@ class PreviewLabel(QLabel):
             self.wm_scale = max(1, min(400, int(scale)))
         self.update_composite()
 
+    def set_rotation(self, angle: int):
+        # 统一限制范围，方便 UI 与滚轮等输入
+        ang = int(angle)
+        if ang < -180:
+            ang = -180
+        elif ang > 180:
+            ang = 180
+        if ang != self.rotation:
+            self.rotation = ang
+            self.update_composite()
+
     def update_composite(self):
         if not hasattr(self, '_pil_base'):
             self.clear()
@@ -113,6 +126,8 @@ class PreviewLabel(QLabel):
                 r, g, b, a = wm.split()
                 a = a.point(lambda v: int(v * self.opacity))
                 wm = Image.merge('RGBA', (r, g, b, a))
+            if self.rotation:
+                wm = wm.rotate(self.rotation, expand=True, resample=Image.BICUBIC)
             tw, th = wm.width, wm.height
             ax, ay = self._anchor_pos(img.width, img.height, tw, th, self.anchor)
             x = int(ax + self.offset.x())
@@ -141,6 +156,10 @@ class PreviewLabel(QLabel):
                 painter.drawText(0, fm.ascent(), text)
                 painter.end()
                 text_pil = ImageQt.fromqimage(qimg).convert("RGBA")
+                if self.rotation:
+                    text_pil = text_pil.rotate(
+                        self.rotation, expand=True, resample=Image.BICUBIC
+                    )
                 layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
                 layer.paste(text_pil, (x, y), text_pil)
                 img = Image.alpha_composite(img, layer)
@@ -245,7 +264,6 @@ class PreviewLabel(QLabel):
         else:
             super().mouseReleaseEvent(e)
 
-    
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -323,13 +341,23 @@ class MainWindow(QMainWindow):
         self.wm_scale_spin = QSpinBox(); self.wm_scale_spin.setRange(1, 400); self.wm_scale_spin.setValue(20)
         self.wm_scale_spin.valueChanged.connect(self.on_wm_scale_change)
         img_row2.addWidget(QLabel("水印缩放（% 宽）：")); img_row2.addWidget(self.wm_scale_spin)
+        # 旋转角度控件（文本/图片通用）
+        rot_row = QHBoxLayout()
+        self.rot_spin = QSpinBox()
+        self.rot_spin.setRange(-180, 180)
+        self.rot_spin.setValue(0)
+        self.rot_spin.valueChanged.connect(self.on_rotation_change)
+        rot_row.addWidget(QLabel("旋转角度（°）："))
+        rot_row.addWidget(self.rot_spin)
         # 装配
         g_layout.addWidget(QLabel("水印文本：")); g_layout.addWidget(self.text_edit)
         g_layout.addWidget(QLabel("透明度：")); g_layout.addWidget(self.opacity_slider)
         g_layout.addWidget(QLabel("字号：")); g_layout.addWidget(self.font_size_spin)
         g_layout.addWidget(QLabel("颜色：")); g_layout.addLayout(color_row)
         g_layout.addWidget(QLabel("位置预设：")); g_layout.addWidget(self.anchor_combo)
-        g_layout.addLayout(img_row1); g_layout.addLayout(img_row2)
+        g_layout.addLayout(img_row1)
+        g_layout.addLayout(img_row2)
+        g_layout.addLayout(rot_row)
         right_layout.addWidget(group)
         # 根据当前模式初始化控件启用状态
         self._toggle_watermark_controls()
@@ -460,6 +488,13 @@ class MainWindow(QMainWindow):
 
     def on_wm_scale_change(self, v: int):
         self.preview.set_image_watermark(scale=v)
+
+    def on_rotation_change(self, v: int):
+        # 文本/图片通用旋转角度
+        try:
+            self.preview.set_rotation(int(v))
+        except Exception:
+            pass
 
     # （已移除“字号百分比模式”，保留纯像素字号）
 
@@ -650,6 +685,9 @@ class MainWindow(QMainWindow):
                 r, g, b, a = wm.split()
                 a = a.point(lambda v: int(v * getattr(self.preview, 'opacity', 0.5)))
                 wm = Image.merge('RGBA', (r, g, b, a))
+            rot = getattr(self.preview, "rotation", 0)
+            if rot:
+                wm = wm.rotate(int(rot), expand=True, resample=Image.BICUBIC)
             tw, th = wm.width, wm.height
             ax, ay = self.preview._anchor_pos(img.width, img.height, tw, th, getattr(self.preview, 'anchor', 'bottom-right'))
             x = int(ax + self.preview.offset.x())
@@ -678,6 +716,11 @@ class MainWindow(QMainWindow):
             painter.drawText(0, fm.ascent(), text or "")
             painter.end()
             text_pil = ImageQt.fromqimage(qimg).convert('RGBA')
+            rot = getattr(self.preview, "rotation", 0)
+            if rot:
+                text_pil = text_pil.rotate(
+                    int(rot), expand=True, resample=Image.BICUBIC
+                )
             layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
             layer.paste(text_pil, (x, y), text_pil)
             return Image.alpha_composite(img, layer)
