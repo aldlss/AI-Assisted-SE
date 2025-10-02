@@ -1,0 +1,48 @@
+{
+  "默认": {
+    "name": "默认",
+    "created_at": "2025-10-02T15:23:19.217140",
+    "settings": {
+      "mode": "text",
+      "text": "",
+      "opacity": 0.5,
+      "font_size": 32,
+      "color_rgb": [
+        255,
+        255,
+        255
+      ],
+      "anchor": "bottom-right",
+      "offset": [
+        -16,
+        -16
+      ],
+      "rotation": 0,
+      "wm_image_path": "",
+      "wm_scale": 20
+    }
+  },
+  "21213": {
+    "name": "21213",
+    "created_at": "2025-10-02T15:25:23.710851",
+    "settings": {
+      "mode": "text",
+      "text": "wwdwad",
+      "opacity": 1.0,
+      "font_size": 32,
+      "color_rgb": [
+        255,
+        85,
+        127
+      ],
+      "anchor": "bottom-right",
+      "offset": [
+        -343,
+        -269
+      ],
+      "rotation": 21,
+      "wm_image_path": "",
+      "wm_scale": 20
+    }
+  }
+}

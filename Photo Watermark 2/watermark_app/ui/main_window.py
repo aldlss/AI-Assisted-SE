@@ -13,12 +13,46 @@
 from __future__ import annotations
 import os
 from typing import List, Optional
-from PySide6.QtCore import Qt, QSize, QPoint, QTimer, Signal
-from PySide6.QtGui import QAction, QPixmap, QIcon, QDragEnterEvent, QDropEvent, QPainter, QColor, QFont, QFontMetrics, QImage
+import json
+from datetime import datetime
+from PySide6.QtCore import Qt, QSize, QPoint, QTimer, Signal, QStandardPaths, QUrl
+from PySide6.QtGui import (
+    QAction,
+    QPixmap,
+    QIcon,
+    QDragEnterEvent,
+    QDropEvent,
+    QPainter,
+    QColor,
+    QFont,
+    QFontMetrics,
+    QImage,
+    QDesktopServices,
+)
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QListWidget, QListWidgetItem, QFileDialog,
-    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QSlider, QSplitter, QMessageBox, QSizePolicy, QGroupBox, QApplication,
-    QComboBox, QColorDialog, QSpinBox, QLineEdit
+    QMainWindow,
+    QWidget,
+    QListWidget,
+    QListWidgetItem,
+    QFileDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QSlider,
+    QSplitter,
+    QMessageBox,
+    QSizePolicy,
+    QGroupBox,
+    QApplication,
+    QComboBox,
+    QColorDialog,
+    QSpinBox,
+    QLineEdit,
+    QInputDialog,
+    QDialog,
+    QPushButton,
 )
 from PIL import Image, ImageQt, ImageDraw, ImageFont
 from ..core.image_loader import ImageLoader
@@ -274,6 +308,11 @@ class MainWindow(QMainWindow):
         self.loader = ImageLoader(thumb_size=(96, 96))
         self._build_ui()
         self.setAcceptDrops(True)
+        # 启动时自动加载上次设置或默认模板
+        try:
+            self._autoload_last_or_default()
+        except Exception:
+            pass
 
     # ---------- UI 构建 ----------
     def _build_ui(self):
@@ -385,7 +424,8 @@ class MainWindow(QMainWindow):
         self.resize_mode = QComboBox(); self.resize_mode.addItems(["none","width","height","percent"]) ; self.resize_mode.setCurrentText("none")
         self.resize_value = QSpinBox(); self.resize_value.setRange(1, 10000); self.resize_value.setValue(100)
         resize_row.addWidget(QLabel("缩放：")); resize_row.addWidget(self.resize_mode); resize_row.addWidget(self.resize_value)
-        self.btn_export = QPushButton("批量导出…"); self.btn_export.clicked.connect(self.on_export)
+        self.btn_export = QPushButton("批量导出…")
+        self.btn_export.clicked.connect(self.on_export)
         exp_l.addLayout(out_row); exp_l.addLayout(name_row); exp_l.addLayout(fmt_row); exp_l.addLayout(resize_row); exp_l.addWidget(self.btn_export)
         right_layout.addWidget(exp); right_layout.addStretch(1)
 
@@ -398,6 +438,24 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("文件")
         act_import = QAction("导入…", self); act_import.triggered.connect(self.import_images_dialog); file_menu.addAction(act_import)
         act_export = QAction("批量导出…", self); act_export.triggered.connect(self.on_export); file_menu.addAction(act_export)
+        # 模板菜单
+        tpl_menu = self.menuBar().addMenu("模板")
+        act_save_tpl = QAction("保存为模板…", self)
+        act_save_tpl.triggered.connect(self.save_template_dialog)
+        tpl_menu.addAction(act_save_tpl)
+        act_load_tpl = QAction("应用模板…", self)
+        act_load_tpl.triggered.connect(self.load_template_dialog)
+        tpl_menu.addAction(act_load_tpl)
+        act_manage_tpl = QAction("管理模板…", self)
+        act_manage_tpl.triggered.connect(self.manage_templates_dialog)
+        tpl_menu.addAction(act_manage_tpl)
+        tpl_menu.addSeparator()
+        act_open_dir = QAction("打开模板文件夹", self)
+        act_open_dir.triggered.connect(self.open_template_dir)
+        tpl_menu.addAction(act_open_dir)
+        act_show_path = QAction("显示模板路径…", self)
+        act_show_path.triggered.connect(self.show_template_path)
+        tpl_menu.addAction(act_show_path)
 
     # ---------- 功能：导入 ----------
     def import_images_dialog(self):
@@ -620,6 +678,245 @@ class MainWindow(QMainWindow):
             self.btn_export.setEnabled(bool(self.images))
         except Exception:
             pass
+
+    # ========== 模板：存取与应用 ==========
+    def _appdata_dir(self) -> str:
+        """项目本地存储目录：项目根目录下 data/，失败则回退到当前工作目录 data/。"""
+        try:
+            # main_window.py 位于 project_root/watermark_app/ui/main_window.py
+            project_root = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..")
+            )
+            d = os.path.join(project_root, "data")
+            os.makedirs(d, exist_ok=True)
+            return d
+        except Exception:
+            # 退回到当前工作目录
+            d = os.path.abspath(os.path.join(os.getcwd(), "data"))
+            try:
+                os.makedirs(d, exist_ok=True)
+            except Exception:
+                pass
+            return d
+
+    def _templates_file(self) -> str:
+        return os.path.join(self._appdata_dir(), "templates.json")
+
+    def _last_file(self) -> str:
+        return os.path.join(self._appdata_dir(), "last.json")
+
+    def _read_json(self, path: str, default):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+
+    def _write_json(self, path: str, data) -> None:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _collect_current_settings(self) -> dict:
+        # 采集当前所有水印相关参数
+        mode = "text" if self.wm_type_combo.currentText() == "文本" else "image"
+        text = self.text_edit.toPlainText()
+        settings = {
+            "mode": mode,
+            "text": text,
+            "opacity": float(self.opacity_slider.value()) / 100.0,
+            "font_size": int(self.font_size_spin.value()),
+            "color_rgb": list(getattr(self.preview, "color_rgb", (255, 255, 255))),
+            "anchor": self.anchor_combo.currentText(),
+            "offset": [int(self.preview.offset.x()), int(self.preview.offset.y())],
+            "rotation": int(getattr(self.preview, "rotation", 0)),
+            "wm_image_path": self.wm_img_path.text().strip(),
+            "wm_scale": int(self.wm_scale_spin.value()),
+        }
+        return settings
+
+    def _apply_settings(self, s: dict):
+        try:
+            mode = s.get("mode", "text")
+            # 切换模式
+            self.wm_type_combo.setCurrentText("文本" if mode == "text" else "图片")
+            self._toggle_watermark_controls()
+
+            # 通用
+            self.text_edit.blockSignals(True)
+            self.text_edit.setPlainText(s.get("text", ""))
+            self.text_edit.blockSignals(False)
+            self.opacity_slider.blockSignals(True)
+            self.opacity_slider.setValue(
+                int(max(0, min(100, round(float(s.get("opacity", 0.5)) * 100))))
+            )
+            self.opacity_slider.blockSignals(False)
+            self.font_size_spin.blockSignals(True)
+            self.font_size_spin.setValue(int(s.get("font_size", 32)))
+            self.font_size_spin.blockSignals(False)
+            col = tuple(s.get("color_rgb", [255, 255, 255]))
+            self.lbl_color.setText(f"#{col[0]:02X}{col[1]:02X}{col[2]:02X}")
+            self.anchor_combo.blockSignals(True)
+            self.anchor_combo.setCurrentText(s.get("anchor", "bottom-right"))
+            self.anchor_combo.blockSignals(False)
+            off = s.get("offset", [-16, -16])
+            self.preview.offset = QPoint(int(off[0]), int(off[1]))
+            self.rot_spin.blockSignals(True)
+            self.rot_spin.setValue(int(s.get("rotation", 0)))
+            self.rot_spin.blockSignals(False)
+
+            # 应用到底层预览
+            self.preview.set_watermark(
+                self.text_edit.toPlainText().strip(),
+                float(self.opacity_slider.value()) / 100.0,
+                font_size=int(self.font_size_spin.value()),
+                color_rgb=col,
+                anchor=self.anchor_combo.currentText(),
+            )
+
+            # 图片水印
+            wm_path = s.get("wm_image_path", "").strip()
+            if wm_path:
+                self.wm_img_path.setText(wm_path)
+                self.preview.set_image_watermark(path=wm_path)
+            self.wm_scale_spin.blockSignals(True)
+            self.wm_scale_spin.setValue(int(s.get("wm_scale", 20)))
+            self.wm_scale_spin.blockSignals(False)
+            if mode == "image":
+                self.preview.set_image_watermark(scale=int(self.wm_scale_spin.value()))
+
+            # 旋转
+            try:
+                self.preview.set_rotation(int(self.rot_spin.value()))
+            except Exception:
+                pass
+
+            self.preview.update_composite()
+        except Exception:
+            pass
+
+    def _autoload_last_or_default(self):
+        # 优先 last.json；如不存在，则若有 templates.json 且包含“默认”则加载；否则创建默认并保存。
+        last_path = self._last_file()
+        last = self._read_json(last_path, None)
+        if isinstance(last, dict) and last.get("settings"):
+            self._apply_settings(last["settings"])
+            return
+        # 尝试默认模板
+        tpls = self._read_json(self._templates_file(), {})
+        default_tpl = tpls.get("默认")
+        if isinstance(default_tpl, dict) and default_tpl.get("settings"):
+            self._apply_settings(default_tpl["settings"])
+            return
+        # 构造并保存默认
+        default = {
+            "name": "默认",
+            "created_at": datetime.now().isoformat(),
+            "settings": self._collect_current_settings(),
+        }
+        tpls["默认"] = default
+        self._write_json(self._templates_file(), tpls)
+        self._write_json(last_path, {"settings": default["settings"]})
+
+    def _save_last_settings(self):
+        data = {
+            "settings": self._collect_current_settings(),
+            "saved_at": datetime.now().isoformat(),
+        }
+        self._write_json(self._last_file(), data)
+
+    def closeEvent(self, event):
+        try:
+            self._save_last_settings()
+        finally:
+            super().closeEvent(event)
+
+    # ----- 模板：交互 -----
+    def save_template_dialog(self):
+        name, ok = QInputDialog.getText(self, "保存模板", "模板名称：")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        tpls = self._read_json(self._templates_file(), {})
+        tpls[name] = {
+            "name": name,
+            "created_at": datetime.now().isoformat(),
+            "settings": self._collect_current_settings(),
+        }
+        self._write_json(self._templates_file(), tpls)
+        QMessageBox.information(self, "模板", f"已保存模板：{name}")
+
+    def load_template_dialog(self):
+        tpls = self._read_json(self._templates_file(), {})
+        names = sorted(tpls.keys())
+        if not names:
+            QMessageBox.information(self, "模板", "暂无模板，请先保存模板。")
+            return
+        name, ok = QInputDialog.getItem(self, "应用模板", "选择模板：", names, 0, False)
+        if not ok:
+            return
+        tpl = tpls.get(name)
+        if tpl and tpl.get("settings"):
+            self._apply_settings(tpl["settings"])
+            # 同时保存为 last
+            self._write_json(
+                self._last_file(),
+                {
+                    "settings": tpl["settings"],
+                    "from": name,
+                    "saved_at": datetime.now().isoformat(),
+                },
+            )
+
+    def manage_templates_dialog(self):
+        tpls = self._read_json(self._templates_file(), {})
+        if not tpls:
+            QMessageBox.information(self, "模板", "暂无模板。")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("管理模板")
+        v = QVBoxLayout(dlg)
+        lst = QListWidget(dlg)
+        for n in sorted(tpls.keys()):
+            lst.addItem(n)
+        v.addWidget(lst)
+        btn_row = QHBoxLayout()
+        btn_del = QPushButton("删除所选", dlg)
+        btn_close = QPushButton("关闭", dlg)
+        btn_row.addWidget(btn_del)
+        btn_row.addStretch(1)
+        btn_row.addWidget(btn_close)
+        v.addLayout(btn_row)
+
+        def on_del():
+            it = lst.currentItem()
+            if not it:
+                return
+            name = it.text()
+            if name in tpls:
+                ret = QMessageBox.question(dlg, "删除模板", f"确认删除模板：{name}？")
+                if ret == QMessageBox.StandardButton.Yes:
+                    tpls.pop(name, None)
+                    self._write_json(self._templates_file(), tpls)
+                    row = lst.row(it)
+                    lst.takeItem(row)
+
+        btn_del.clicked.connect(on_del)
+        btn_close.clicked.connect(dlg.accept)
+        dlg.exec()
+
+    def open_template_dir(self):
+        try:
+            d = self._appdata_dir()
+            QDesktopServices.openUrl(QUrl.fromLocalFile(d))
+        except Exception:
+            QMessageBox.information(self, "模板", f"模板目录：\n{self._appdata_dir()}")
+
+    def show_template_path(self):
+        msg = f"模板库: {self._templates_file()}\n上次设置: {self._last_file()}"
+        QMessageBox.information(self, "模板路径", msg)
 
     # ---------- 预览等效渲染与导出 ----------
     def _export_preview_like_batch(

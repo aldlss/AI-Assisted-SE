@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "mode": "text",
+    "text": "wwdwad",
+    "opacity": 1.0,
+    "font_size": 232,
+    "color_rgb": [
+      255,
+      85,
+      127
+    ],
+    "anchor": "bottom-right",
+    "offset": [
+      -123,
+      -242
+    ],
+    "rotation": 21,
+    "wm_image_path": "",
+    "wm_scale": 20
+  },
+  "saved_at": "2025-10-02T20:16:41.187776"
+}
