@@ -1,128 +1,92 @@
 # Photo Watermark 2
 
-跨平台（Windows / macOS / Linux）本地图像批量加水印工具。
+跨平台（Windows / macOS / Linux）的本地批量图片加水印工具，提供所见即所得的预览与模板管理能力。
 
-本项目目标：在简洁 GUI 中提供图片批量导入、文本/图片水印、位置与透明度调整、实时预览、模板保存等功能。
+## 功能一览
+- 导入
+  - 从菜单或左侧按钮导入：
+    - 导入文件…（可多选）
+    - 导入文件夹…（递归扫描支持格式）
+  - 支持将文件/文件夹直接拖拽到窗口
+  - 支持格式：.jpg .jpeg .png .bmp .tif .tiff
+- 预览与编辑
+  - 左侧列表选择图片，中央实时预览
+  - 位置预设（九宫格）+ 预览中直接拖拽微调位置
+  - 旋转（文本/图片通用）
+- 文本水印
+  - 文本内容、透明度、字号、颜色
+  - 位置预设 + 拖拽 + 旋转
+- 图片水印
+  - 选择 PNG/JPG 作为水印（支持透明通道）
+  - 透明度、旋转、位置预设 + 拖拽
+  - 缩放：按“水印自身原始宽度”的百分比（与背景图大小无关，更稳定一致）
+  - 鼠标滚轮在预览上可调整图片水印缩放（Ctrl=1% 精调，默认 5%，Shift=10%）
+- 导出
+  - 导出选中…（仅导出左侧当前选择的图片；若未选择则提示）
+  - 输出目录、命名规则（原名/前缀/后缀）
+  - 格式：PNG / JPEG（可调质量）
+  - 可选尺寸缩放：宽/高/百分比
+  - 覆盖保护：默认不允许导出到原图所在目录
+- 模板
+  - 保存为模板… / 应用模板… / 管理模板…（删除）
+  - 打开模板文件夹 / 显示模板路径
+  - 启动时自动加载上次关闭时的设置（last.json）
 
-## 实施路线（迭代拆解）
+数据与隐私
+- 模板与上次设置存放于项目目录的 `data/` 下：
+  - `data/templates.json`：保存的模板集合
+  - `data/last.json`：上次退出时的设置
+- 以上文件仅用于本地，不纳入 Git 版本管理（已在 `.gitignore` 忽略）。
 
-### 阶段 0：项目初始化（当前阶段）
-- 选型：Python + PySide6 (Qt) 作为跨平台 GUI 框架，Pillow 进行图像处理
-- 建立基础目录结构与依赖文件
-- 搭建最小可运行 GUI：
-  - 主窗口 + 左侧图片列表占位 + 中部预览区 + 右侧水印设置面板（占位）
-  - 支持拖拽/文件选择导入图片（文件路径列表显示）
-  - 简单文本水印渲染（固定位置/透明度）预览（仅单张）
+## 安装与运行
+推荐在子目录中运行（以避免路径空格造成的导入问题）。
 
-### 阶段 1：图片导入与管理
-- 支持批量导入与文件夹递归扫描（过滤支持格式）
-- 生成缩略图（缓存）展示
-- 选中切换预览
-
-### 阶段 2：文本水印核心功能
-- 文本内容输入、字体、字号、颜色、透明度
-- 位置预设（九宫格）+ 拖拽移动
-- 即时预览合成
-
-### 阶段 3：图片水印（高级）
-- 载入 PNG / 其他格式图片作为水印，支持透明通道
-- 自由/等比缩放，透明度调节
-- 旋转功能（文本/图片通用）
-
-### 阶段 4：批量导出
-- 输出目录选择 + 覆盖保护
-- 命名规则（原名 / 前缀 / 后缀）
-- 输出格式：JPEG / PNG
-- JPEG 质量滑块、尺寸缩放（宽/高/百分比）
-
-### 阶段 5：模板与配置持久化
-- 保存/加载/删除模板（JSON）
-- 启动时自动加载上次配置
-
-### 阶段 6：打包与发布
-- PyInstaller / Briefcase 打包
-- 入口脚本 + 图标资源
-
-## 目录结构（规划）
-```
-Photo Watermark 2/
-  README.md
-  requirements.txt
-  watermark_app/
-    __init__.py
-    main.py            # 程序入口（GUI 启动）
-    ui/
-      main_window.py   # 主窗口类
-      widgets/         # 自定义控件
-    core/
-      image_loader.py  # 图片加载与缩略图
-      watermark_text.py
-      watermark_image.py
-      preview_composer.py
-      exporter.py
-      templates.py
-      settings.py
-    assets/
-      fonts/ (可选)
-      icons/
-    data/
-      templates/       # 用户模板 JSON
-      cache/           # 缩略图缓存
-```
-
-## 依赖（初版）
-- PySide6：GUI
-- Pillow：图像处理
-
-后续可能增加：
-- numpy（加速矩阵操作，可选）
-- typing-extensions（兼容性）
-
-## 开发约定
-- 代码与注释使用中文
-- 模块内部提供最小职责 + 清晰 docstring
-- GUI 与业务逻辑分层：UI 层不直接做图像像素操作，交由 core/* 处理
-
-## 运行方式（当前阶段）
-```
-python -m pip install -r requirements.txt
-python -m watermark_app.main
-```
-
-### 从仓库根目录运行（不在根目录放启动脚本）
-由于目录名包含空格 `Photo Watermark 2`，直接在仓库根目录执行 `python -m watermark_app.main` 会找不到包。请使用以下任一方式：
-
-方式 A（推荐，进入子目录）：
+1) 进入项目子目录并安装依赖
 ```bash
 cd "Photo Watermark 2"
-python -m pip install -r requirements.txt   # 首次或依赖更新时
+python -m pip install -r requirements.txt
+```
+
+2) 启动应用
+```bash
 python -m watermark_app.main
 ```
 
-方式 B（根目录临时指定 PYTHONPATH）：
+如需从仓库根目录运行，可临时指定 PYTHONPATH：
 ```bash
 PYTHONPATH="Photo Watermark 2" python -m watermark_app.main
 ```
-Windows PowerShell：
-```pwsh
-$env:PYTHONPATH="Photo Watermark 2"; python -m watermark_app.main
-```
-Windows CMD：
-```cmd
-set PYTHONPATH=Photo Watermark 2 && python -m watermark_app.main
-```
 
-方式 C（可选：重命名目录以避免空格）
-如果你不介意重命名，可将目录改成无空格：
-```bash
-git mv "Photo Watermark 2" photo_watermark_2
-```
-然后在根目录即可：
-```bash
-PYTHONPATH=photo_watermark_2 python -m watermark_app.main
-```
+## 使用指南
+1) 导入图片
+   - 左侧“导入文件…”或“导入文件夹…”，或直接拖拽到窗口
+   - 列表支持多选；Delete 键可移除所选；“清空列表”可一键清空
+2) 设置水印
+   - 在右侧面板选择“文本/图片”水印类型
+   - 文本水印：编辑文本、透明度、字号、颜色，选择位置预设后可在预览中拖动微调；可设置旋转
+   - 图片水印：选择水印图片，调整透明度、宽度（按水印自身宽度的百分比）、旋转；同样支持位置预设与拖拽
+3) 导出选中
+   - 在左侧列表选中要导出的图片
+   - 选择输出目录、命名规则、输出格式与质量，可选尺寸缩放
+   - 点击“导出选中…”开始导出
+4) 模板
+   - 菜单“模板”里可以保存当前设置为模板、应用已有模板、管理（删除）模板
+   - 支持打开模板文件夹与查看模板路径
+   - 关闭应用前会自动保存最后一次设置，启动时自动加载
 
-> 不在仓库根目录放置额外启动脚本，保持根目录整洁；使用 PYTHONPATH 或进入子目录即能满足运行需求。
+## 键鼠小贴士
+- 预览区域：
+  - 鼠标左键拖拽水印进行微调
+  - 滚轮（仅图片水印）：调整缩放；Ctrl=1%，默认=5%，Shift=10%
+- 列表：Delete 快速移除所选
+
+## 常见问题（FAQ）
+- 无法启动/缺少依赖？
+  - 请先执行：`python -m pip install -r requirements.txt`
+- 字体显示与中文支持？
+  - 程序默认使用系统常见字体（如 DejaVuSans/Arial），不同系统可能略有差异
+- 为什么导出尺寸和原图不一致？
+  - 当前导出采用“与预览一致”的尺寸逻辑；如需原始像素导出可在后续版本提供切换选项
 
 ## 许可证
-（根据需要选择，可后续添加）
+（根据需要补充）
