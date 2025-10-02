@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 import os
+import sys
 from typing import List, Optional
 import json
 from datetime import datetime
@@ -709,9 +710,22 @@ class MainWindow(QMainWindow):
 
     # ========== 模板：存取与应用 ==========
     def _appdata_dir(self) -> str:
-        """项目本地存储目录：项目根目录下 data/，失败则回退到当前工作目录 data/。"""
+        """本地存储目录：
+        - 打包运行（frozen）：优先使用可执行文件同级的 data/（持久，避免临时解包目录）
+        - 开发运行：使用项目根目录下 data/
+        - 兜底：当前工作目录 data/
+        """
+        # 1) 打包运行：exe 同级目录
         try:
-            # main_window.py 位于 project_root/watermark_app/ui/main_window.py
+            if getattr(sys, "frozen", False):
+                exe_dir = os.path.dirname(sys.executable)
+                d = os.path.join(exe_dir, "data")
+                os.makedirs(d, exist_ok=True)
+                return d
+        except Exception:
+            pass
+        # 2) 开发运行：项目根目录
+        try:
             project_root = os.path.abspath(
                 os.path.join(os.path.dirname(__file__), "..", "..")
             )
@@ -719,13 +733,14 @@ class MainWindow(QMainWindow):
             os.makedirs(d, exist_ok=True)
             return d
         except Exception:
-            # 退回到当前工作目录
-            d = os.path.abspath(os.path.join(os.getcwd(), "data"))
-            try:
-                os.makedirs(d, exist_ok=True)
-            except Exception:
-                pass
-            return d
+            pass
+        # 3) 兜底：当前工作目录
+        d = os.path.abspath(os.path.join(os.getcwd(), "data"))
+        try:
+            os.makedirs(d, exist_ok=True)
+        except Exception:
+            pass
+        return d
 
     def _templates_file(self) -> str:
         return os.path.join(self._appdata_dir(), "templates.json")
