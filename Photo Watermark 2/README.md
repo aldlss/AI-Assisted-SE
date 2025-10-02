@@ -79,6 +79,9 @@ PYTHONPATH="Photo Watermark 2" python -m watermark_app.main
 注意事项
 - 本项目启动时会将工作目录切换到可执行文件所在目录，以便使用相对路径访问 `data/`；
 - `data/templates.json` 与 `data/last.json` 仅用于本地，不应随发行包预置个人数据，打包前可清空该目录。
+- 打包版（.exe）会将模板与上次设置保存到“可执行文件同级”的 `data/` 目录（与 PhotoWatermark2.exe 同目录）。
+  - 如需迁移/备份模板，拷贝 exe 同目录下的 `data/` 即可；
+  - 运行中可通过“模板 → 显示模板路径”查看当前实际存储位置。
 
 ## 使用指南
 1) 导入图片
