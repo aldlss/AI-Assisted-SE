@@ -325,9 +325,14 @@ class MainWindow(QMainWindow):
         self.list_widget = QListWidget()
         self.list_widget.setIconSize(QSize(96, 96))
         self.list_widget.itemSelectionChanged.connect(self.on_selection_change)
-        btn_add = QPushButton("导入图片/文件夹")
-        btn_add.clicked.connect(self.import_images_dialog)
-        left_layout.addWidget(btn_add)
+        add_row = QHBoxLayout()
+        btn_add_files = QPushButton("导入文件…")
+        btn_add_files.clicked.connect(self.import_files_dialog)
+        btn_add_dir = QPushButton("导入文件夹…")
+        btn_add_dir.clicked.connect(self.import_folder_dialog)
+        add_row.addWidget(btn_add_files)
+        add_row.addWidget(btn_add_dir)
+        left_layout.addLayout(add_row)
         # 移除/清空
         rm_row = QHBoxLayout()
         btn_remove = QPushButton("移除所选"); btn_remove.clicked.connect(self.remove_selected_images)
@@ -424,7 +429,7 @@ class MainWindow(QMainWindow):
         self.resize_mode = QComboBox(); self.resize_mode.addItems(["none","width","height","percent"]) ; self.resize_mode.setCurrentText("none")
         self.resize_value = QSpinBox(); self.resize_value.setRange(1, 10000); self.resize_value.setValue(100)
         resize_row.addWidget(QLabel("缩放：")); resize_row.addWidget(self.resize_mode); resize_row.addWidget(self.resize_value)
-        self.btn_export = QPushButton("批量导出…")
+        self.btn_export = QPushButton("导出选中…")
         self.btn_export.clicked.connect(self.on_export)
         exp_l.addLayout(out_row); exp_l.addLayout(name_row); exp_l.addLayout(fmt_row); exp_l.addLayout(resize_row); exp_l.addWidget(self.btn_export)
         right_layout.addWidget(exp); right_layout.addStretch(1)
@@ -436,8 +441,9 @@ class MainWindow(QMainWindow):
 
         # 菜单占位
         file_menu = self.menuBar().addMenu("文件")
-        act_import = QAction("导入…", self); act_import.triggered.connect(self.import_images_dialog); file_menu.addAction(act_import)
-        act_export = QAction("批量导出…", self); act_export.triggered.connect(self.on_export); file_menu.addAction(act_export)
+        act_import_files = QAction("导入文件…", self); act_import_files.triggered.connect(self.import_files_dialog); file_menu.addAction(act_import_files)
+        act_import_dir = QAction("导入文件夹…", self); act_import_dir.triggered.connect(self.import_folder_dialog); file_menu.addAction(act_import_dir)
+        act_export = QAction("导出选中…", self); act_export.triggered.connect(self.on_export); file_menu.addAction(act_export)
         # 模板菜单
         tpl_menu = self.menuBar().addMenu("模板")
         act_save_tpl = QAction("保存为模板…", self)
@@ -459,10 +465,33 @@ class MainWindow(QMainWindow):
 
     # ---------- 功能：导入 ----------
     def import_images_dialog(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "选择图片", os.getcwd(), "Images (*.jpg *.jpeg *.png *.bmp *.tif *.tiff)")
+        """兼容旧菜单：等价于导入文件…"""
+        self.import_files_dialog()
+
+    def import_files_dialog(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "选择图片文件",
+            os.getcwd(),
+            "Images (*.jpg *.jpeg *.png *.bmp *.tif *.tiff)"
+        )
         if not paths:
             return
         self.add_images(paths)
+
+    def import_folder_dialog(self):
+        d = QFileDialog.getExistingDirectory(self, "选择图片文件夹", os.getcwd())
+        if not d:
+            return
+        paths: List[str] = []
+        for root, _, files in os.walk(d):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                ext = os.path.splitext(fp)[1].lower()
+                if ext in SUPPORTED_EXT:
+                    paths.append(fp)
+        if paths:
+            self.add_images(paths)
 
     def add_images(self, paths: List[str]):
         new_files = []
@@ -622,14 +651,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "水印图片", "请选择水印图片文件")
                 return
         offset_ratio = self._offset_ratio()
-        # 改为直接按“预览所见”渲染导出，确保所见即所得。
-        # 如果有多选则导出所选；否则导出全部列表。
+        # 改为仅导出“所选”图片；未选择时给出提示。
         selected_items = self.list_widget.selectedItems()
-        target_paths = (
-            [it.data(Qt.ItemDataRole.UserRole) for it in selected_items]
-            if selected_items
-            else list(self.images)
-        )
+        if not selected_items:
+            QMessageBox.information(self, "导出", "请在左侧列表选择要导出的图片（支持多选）")
+            return
+        target_paths = [it.data(Qt.ItemDataRole.UserRole) for it in selected_items]
         ok, fail = self._export_preview_like_batch(target_paths, text, settings)
         QMessageBox.information(self, "导出完成", f"成功 {ok} 张，失败 {fail} 张。文件保存在：\n{out_dir}")
         # 导出后保持列表不变；如需清空可在此添加操作
