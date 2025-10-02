@@ -151,7 +151,8 @@ class PreviewLabel(QLabel):
         img = self._pil_base.copy()
         if self.wm_mode == 'image' and self.wm_image_pil is not None:
             wm = self.wm_image_pil.copy()
-            target_w = max(1, int(img.width * self.wm_scale / 100.0))
+            # 按水印原始宽度百分比缩放
+            target_w = max(1, int(wm.width * self.wm_scale / 100.0))
             ratio = target_w / wm.width
             wm = wm.resize((target_w, max(1, int(wm.height * ratio))), Image.LANCZOS)
             if self.opacity < 1.0:
@@ -382,9 +383,9 @@ class MainWindow(QMainWindow):
         self.wm_img_btn = QPushButton("选择水印图片…"); self.wm_img_btn.clicked.connect(self.on_pick_wm_image)
         img_row1.addWidget(self.wm_img_path); img_row1.addWidget(self.wm_img_btn)
         img_row2 = QHBoxLayout()
-        self.wm_scale_spin = QSpinBox(); self.wm_scale_spin.setRange(1, 400); self.wm_scale_spin.setValue(20)
+        self.wm_scale_spin = QSpinBox(); self.wm_scale_spin.setRange(1, 400); self.wm_scale_spin.setValue(100)
         self.wm_scale_spin.valueChanged.connect(self.on_wm_scale_change)
-        img_row2.addWidget(QLabel("水印缩放（% 宽）：")); img_row2.addWidget(self.wm_scale_spin)
+        img_row2.addWidget(QLabel("水印宽度（% 自身）：")); img_row2.addWidget(self.wm_scale_spin)
         # 旋转角度控件（文本/图片通用）
         rot_row = QHBoxLayout()
         self.rot_spin = QSpinBox()
@@ -1000,7 +1001,8 @@ class MainWindow(QMainWindow):
         img = img.convert("RGBA")
         if getattr(self.preview, 'wm_mode', 'text') == 'image' and self.preview.wm_image_pil is not None:
             wm = self.preview.wm_image_pil.copy()
-            target_w = max(1, int(img.width * getattr(self.preview, 'wm_scale', 20) / 100.0))
+            # 按水印原始宽度百分比缩放
+            target_w = max(1, int(wm.width * max(1, int(getattr(self.preview, 'wm_scale', 100))) / 100.0))
             ratio = target_w / wm.width
             wm = wm.resize((target_w, max(1, int(wm.height * ratio))), Image.LANCZOS)
             if getattr(self.preview, 'opacity', 0.5) < 1.0:
