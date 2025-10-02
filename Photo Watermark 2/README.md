@@ -57,6 +57,29 @@ python -m watermark_app.main
 PYTHONPATH="Photo Watermark 2" python -m watermark_app.main
 ```
 
+## 本地打包（Windows 可执行文件）
+不引入任何工作流，仅在本机打包为 Windows 可执行文件（.exe）。
+
+- 方案 A：在 Windows 上打包（最稳妥）
+  1) 安装依赖与 PyInstaller：
+     ```powershell
+     cd "Photo Watermark 2"
+     python -m pip install -r requirements.txt pyinstaller
+     ```
+  2) 打包：
+     ```powershell
+     pyinstaller -F -w -n PhotoWatermark2 -p watermark_app watermark_app/main.py
+     ```
+     - 生成的 exe 位于 `dist/PhotoWatermark2.exe`
+
+- 方案 B：在 Linux 上打包 Windows 版本（需要 Wine 环境）
+  - 安装 Wine 与对应的 Python + PyInstaller 运行时较为繁琐，建议直接在 Windows 打包；
+  - 如必须在 Linux 打包，请使用现有的 Wine + PyInstaller 指南配置好环境后执行与方案 A 相同的命令。
+
+注意事项
+- 本项目启动时会将工作目录切换到可执行文件所在目录，以便使用相对路径访问 `data/`；
+- `data/templates.json` 与 `data/last.json` 仅用于本地，不应随发行包预置个人数据，打包前可清空该目录。
+
 ## 使用指南
 1) 导入图片
    - 左侧“导入文件…”或“导入文件夹…”，或直接拖拽到窗口
