@@ -18,3 +18,7 @@ dist/
 images/
 *_watermark/
 out/
+
+# Runtime app data (templates and last state)
+Photo Watermark 2/data/templates.json
+Photo Watermark 2/data/last.json
