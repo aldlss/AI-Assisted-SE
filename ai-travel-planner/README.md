@@ -34,3 +34,14 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Project Docs
+
+项目的需求、架构与实现方案文档见 docs：
+
+- docs/README.md（索引）
+- docs/01-requirements.md（需求说明书）
+- docs/02-architecture.md（架构设计）
+- docs/03-implementation-plan.md（实现计划）
+- docs/04-data-and-apis.md（数据与 API 设计）
+- docs/05-deployment.md（部署与交付）
