@@ -83,6 +83,7 @@ sequenceDiagram
   - 不提交在仓库；本地通过 `.env.local` 注入，生产通过环境变量或运行时设置页输入。
   - 用户自带的 API Key（可选）：使用服务端加密后存库，或仅会话级存储（不落库）。
   - 推荐使用 Postgres `pgcrypto` 或 KMS（如有）进行加密。
+  - 高德地图：前端 JS SDK 使用受域名白名单与 `securityJsCode` 保护的公开 Key；涉及路线/地理编码等 REST 服务改走服务端代理并使用私密 `AMAP_REST_KEY`。
 - CSRF/XSS：采用 Next.js 默认防护、严格的内容安全策略（CSP）与对外 API 白名单校验。
 
 ## 错误处理与重试

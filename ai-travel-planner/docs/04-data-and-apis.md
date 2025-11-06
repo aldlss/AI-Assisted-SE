@@ -97,5 +97,6 @@ create policy trips_owner on trips
   - ASR：上传 PCM/WAV/WebM，选择中文识别模型（paraformer）
   - LLM：Qwen2.5 或同等中文效果模型；优先流式（Server-Sent Events）
 - 高德地图
-  - Web JS Loader（按需加载插件）；Key 通过设置页或 env 注入，限制域名白名单
-  - 仅在浏览器使用 Key；敏感服务（若需）走服务端代理
+  - 浏览器端（JS API）：需要公开的 `NEXT_PUBLIC_AMAP_KEY` 才能加载 SDK，无法完全隐藏；务必在高德控制台配置“Referer 白名单”，并可启用 `securityJsCode`（`NEXT_PUBLIC_AMAP_SECURITY_JS_CODE`）增强校验。
+  - 服务端（Web Service REST）：使用私密 `AMAP_REST_KEY`，通过 Next.js API Route 代理访问路线/地理编码等服务，避免在前端暴露服务端密钥；必要时可对参数做签名。
+  - 组合策略：前端仅用于地图展示与基础交互；涉及敏感数据或配额敏感的服务统一走服务端代理。

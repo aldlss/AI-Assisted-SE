@@ -32,8 +32,10 @@ CMD ["pnpm","start"]
 - 必需
   - NEXT_PUBLIC_AMAP_KEY（浏览器用，限制域名）
   - SUPABASE_URL, SUPABASE_ANON_KEY（Auth 与 DB）
-- 服务端可选
-  - DASHScope_API_KEY（若采用环境变量方式）
+- 可选（按需开启）
+  - NEXT_PUBLIC_AMAP_SECURITY_JS_CODE（高德 JS API 安全码，增强前端加载校验）
+  - AMAP_REST_KEY（仅服务端使用的 Web Service Key，用于路线/地理编码等 REST 服务）
+  - DASHScope_API_KEY（若采用环境变量方式注入服务端 Key）
   - ENCRYPTION_SECRET（用于 pgcrypto 或服务端加解密）
 
 建议在仓库提供 `.env.example`（不含真实值）。
@@ -83,10 +85,12 @@ jobs:
 
 ## 运行指引（本地）
 1. 准备 `.env.local`：
-   - NEXT_PUBLIC_AMAP_KEY=...
+  - NEXT_PUBLIC_AMAP_KEY=...
+  - （可选）NEXT_PUBLIC_AMAP_SECURITY_JS_CODE=...
    - SUPABASE_URL=...
    - SUPABASE_ANON_KEY=...
-   - （可选）DASHScope_API_KEY=...
+  - （可选）AMAP_REST_KEY=...
+  - （可选）DASHScope_API_KEY=...
 2. 安装依赖并启动：
    - `pnpm i`
    - `pnpm dev`
