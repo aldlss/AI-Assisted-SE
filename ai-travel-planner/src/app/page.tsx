@@ -1,10 +1,12 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { PlanRequest, PlanResponse } from "@/types/plan";
+import { isUuidV4 } from "@/lib/uuid";
 const MapView = dynamic(
     () => import("@/components/map/MapView").then((m) => m.MapView),
     { ssr: false }
@@ -22,6 +24,7 @@ export default function Home() {
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<PlanResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const router = useRouter();
 
     async function generatePlan() {
         setLoading(true);
@@ -43,6 +46,11 @@ export default function Home() {
             if (!res.ok) throw new Error("生成行程失败，请稍后重试");
             const data = (await res.json()) as PlanResponse;
             setResult(data);
+            // 若已保存并返回 tripId，则跳转到详情页以获得更完整的展示
+            if (isUuidV4(data.tripId)) {
+                router.push(`/trips/${data.tripId}`);
+                return;
+            }
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
             setError(msg || "发生未知错误");

@@ -1,11 +1,25 @@
-export default function TripDetailPage({ params }: { params: { id: string } }) {
-  // 详情页占位：后续将展示每日行程与地图
+import TripDetailClient from "@/components/trips/trip-detail-client";
+import { notFound } from "next/navigation";
+import { isUuidV4 } from "@/lib/uuid";
+import { use } from "react";
+
+// Server Component: 使用 React.use() 解包 params Promise（Next.js 15+/React 19）
+export default function TripDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
+
+  // 基于服务器的早期校验，避免无效 ID 触发客户端请求与 Postgres 22P02 错误
+  if (!isUuidV4(id)) {
+    notFound();
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="mb-4 text-2xl font-semibold">行程详情</h1>
-        <p className="text-sm text-gray-600">ID：{params.id}</p>
-        <p className="mt-2 text-sm text-gray-600">详细页正在建设中，稍后将展示每日行程、地点与地图。</p>
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <TripDetailClient id={id} />
       </div>
     </div>
   );
