@@ -13,6 +13,8 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import type { PlanRequest, PlanResponse } from "@/types/plan";
 import { isUuidV4 } from "@/lib/uuid";
+import { parseSpeechToForm } from "../lib/speechParser";
+import { VoiceInput } from "@/components/asr/VoiceInput";
 const MapView = dynamic(
     () => import("@/components/map/MapView").then((m) => m.MapView),
     { ssr: false }
@@ -25,21 +27,36 @@ export default function Home() {
     const [budget, setBudget] = useState<number | "">("");
     const [partySize, setPartySize] = useState<number | "">("");
     const [preferences, setPreferences] = useState("");
+    const [startDate, setStartDate] = useState<string | "">("");
 
     // 结果状态
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<PlanResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
     const router = useRouter();
+    // speechFilling 仅用于未来可能的节流，此处暂不显示
+    const [speechFilling, setSpeechFilling] = useState(false); // eslint-disable-line @typescript-eslint/no-unused-vars
 
     async function generatePlan() {
         setLoading(true);
         setError(null);
         setResult(null);
-        try {
+            try {
+            const dateRange = startDate ? {
+                start: startDate,
+                end: (() => {
+                    try {
+                        const d = new Date(startDate);
+                        d.setDate(d.getDate() + Math.max(0, days - 1));
+                        return d.toISOString().slice(0,10);
+                    } catch { return startDate; }
+                })(),
+            } : undefined;
+
             const payload: PlanRequest = {
                 destination,
                 days,
+                dateRange,
                 budget: budget === "" ? undefined : Number(budget),
                 partySize: partySize === "" ? undefined : Number(partySize),
                 preferences,
@@ -65,6 +82,30 @@ export default function Home() {
         }
     }
 
+    function onSpeech(text: string) {
+        // 解析中文口述，智能填充表单；若关键信息齐全则自动生成
+        setSpeechFilling(true);
+        try {
+            const parsed = parseSpeechToForm(text);
+            if (parsed.destination) setDestination(parsed.destination);
+            if (typeof parsed.days === "number") setDays(parsed.days);
+            if (typeof parsed.budget === "number" || parsed.budget === "") setBudget(parsed.budget as number | "");
+            if (typeof parsed.partySize === "number" || parsed.partySize === "") setPartySize(parsed.partySize as number | "");
+            if (parsed.preferences) setPreferences(parsed.preferences);
+            // 自动触发：当 destination 和 days 存在时
+            const dest = parsed.destination || destination;
+            const d = typeof parsed.days === "number" ? parsed.days : days;
+            if (dest && d && !loading) {
+                // 微小延迟以确保状态已入队
+                setTimeout(() => {
+                    generatePlan();
+                }, 100);
+            }
+        } finally {
+            setSpeechFilling(false);
+        }
+    }
+
     return (
         <Container maxWidth="lg" sx={{ py: 6 }}>
             <Box
@@ -84,6 +125,13 @@ export default function Home() {
                                 fullWidth
                                 value={destination}
                                 onChange={(e) => setDestination(e.target.value)}
+                            />
+                            <TextField
+                                label="出发日期"
+                                type="date"
+                                InputLabelProps={{ shrink: true }}
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
                             />
                             <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
                                 <TextField
@@ -124,6 +172,12 @@ export default function Home() {
                             <Typography variant="caption" color="text.secondary">
                                 可在设置页配置阿里云百炼与高德 Key。
                             </Typography>
+                            <Box sx={{ mt: 1 }}>
+                                <VoiceInput onText={onSpeech} />
+                                <Typography variant="caption" color="text.secondary">
+                                    说：&quot;帮我规划{destination || '上海'}{days}天，预算{Number(budget) || 5000}元，{Number(partySize) || 2}人，偏好{preferences || '美食风景'}&quot;，会自动填充并生成行程。
+                                </Typography>
+                            </Box>
                         </Box>
                     </CardContent>
                 </Card>

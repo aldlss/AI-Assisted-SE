@@ -37,6 +37,22 @@ export async function POST(req: NextRequest) {
     // 地理编码失败不阻断主流程
   }
 
+  // 2.5) 为每一天的 items 填充时间（start_time/end_time），便于前端展示节奏
+  try {
+    addTimesToPlan(plan);
+  } catch {
+    // 不影响主流程
+  }
+
+  // 2.6) 若提供预算：尽量在不减少体验的前提下不超过预算（先按日裁剪高成本项，最后按比例压缩估算）
+  try {
+    if (typeof body.budget === "number" && body.budget > 0) {
+      enforceBudget(plan, body.budget);
+    }
+  } catch {
+    // 预算约束失败不阻断
+  }
+
   // 3) 持久化到 Supabase（需要已登录）
   const supabase = await createSupabaseRouteHandlerClient();
   const { data: { user }, error: userErr } = await supabase.auth.getUser();
@@ -253,6 +269,38 @@ async function generatePlanWithQwen(body: PlanRequest): Promise<PlanResponse> {
   return plan;
 }
 
+// 为没有时间的条目增加合理的开始/结束时间（HH:mm），以 09:00 开始，按类型分配时长
+function addTimesToPlan(plan: PlanResponse) {
+  const startMinutes = 9 * 60; // 09:00
+  const endLimit = 22 * 60; // 最晚 22:00
+  const durByType: Record<string, number> = {
+    sight: 150, // 2.5h
+    food: 60,   // 1h
+    hotel: 30,  // 0.5h（checkin/checkout）
+    transport: 45, // 0.75h（短换乘）
+  };
+  function fmt(m: number) {
+    const hh = Math.floor(m / 60).toString().padStart(2, "0");
+    const mm = (m % 60).toString().padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+  for (const day of plan.itinerary) {
+    let cursor = startMinutes;
+    for (const it of day.items) {
+      const hasTime = !!(it.start_time || it.end_time);
+      if (hasTime) continue;
+      const typ = (it.type || "sight").toLowerCase();
+      const dur = durByType[typ] ?? 90;
+      const st = cursor;
+      let ed = st + dur;
+      if (ed > endLimit) ed = endLimit;
+      it.start_time = fmt(st);
+      it.end_time = fmt(ed);
+      cursor = ed + 15; // 预留 15 分钟缓冲
+    }
+  }
+}
+
 // 使用高德 REST 对计划中的 items 进行地理编码填充经纬度
 async function geocodePlanItemsInPlace(plan: PlanResponse, destination?: string) {
   const key = process.env.AMAP_REST_KEY;
@@ -311,5 +359,53 @@ async function geocodeOnce(address: string, city: string | undefined, key: strin
     const lat = Number(latStr), lng = Number(lngStr);
     if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
     return null;
+  }
+}
+
+// 在不显著破坏节奏的前提下，尽量把总估算控制在预算之内。
+// 策略：
+// 1) 按天平均预算分配；每一天优先删除单价最高的可删项（保留至少 3 个条目），直至日内不超支。
+// 2) 若总计仍超支，则对所有条目 estimated_cost 按比例整体缩放到预算。
+function enforceBudget(plan: PlanResponse, totalBudget: number) {
+  const allCosts = plan.itinerary.flatMap(d => d.items).map(it => typeof it.estimated_cost === 'number' ? it.estimated_cost : 0);
+  const currentTotal = allCosts.reduce((a,b)=>a+b,0);
+  if (currentTotal <= totalBudget || currentTotal <= 0) return;
+  const days = Math.max(1, Number(plan.days || plan.itinerary.length || 1));
+  const dayBudget = totalBudget / days;
+
+  // 逐日裁剪
+  for (const day of plan.itinerary) {
+    let dayTotal = (day.items || []).reduce((s, it) => s + (typeof it.estimated_cost === 'number' ? it.estimated_cost : 0), 0);
+    if (dayTotal <= dayBudget) continue;
+    // 保留至少 3 个条目，删除 cost 最大的项优先
+    while (dayTotal > dayBudget && day.items.length > 3) {
+      let idx = -1; let maxCost = -1;
+      for (let i = 0; i < day.items.length; i++) {
+        const c = typeof day.items[i].estimated_cost === 'number' ? day.items[i].estimated_cost! : 0;
+        // 优先删除非“酒店/交通”的高成本项
+        const typ = (day.items[i].type || '').toLowerCase();
+        const penalty = (typ === 'hotel' || typ === 'transport') ? 0.5 : 1;
+        const score = c * penalty; // 酒店/交通权重减半，降低被删概率
+        if (score > maxCost) { maxCost = score; idx = i; }
+      }
+      if (idx >= 0) {
+        const removed = day.items.splice(idx, 1)[0];
+        const rc = typeof removed.estimated_cost === 'number' ? removed.estimated_cost! : 0;
+        dayTotal -= rc;
+      } else break;
+    }
+  }
+
+  // 重新计算，若仍超支则按比例缩放
+  const newTotal = plan.itinerary.flatMap(d => d.items).reduce((s, it) => s + (typeof it.estimated_cost === 'number' ? it.estimated_cost : 0), 0);
+  if (newTotal > totalBudget && newTotal > 0) {
+    const scale = totalBudget / newTotal;
+    for (const day of plan.itinerary) {
+      for (const it of day.items) {
+        if (typeof it.estimated_cost === 'number') {
+          it.estimated_cost = Math.max(0, Math.round(it.estimated_cost * scale));
+        }
+      }
+    }
   }
 }
