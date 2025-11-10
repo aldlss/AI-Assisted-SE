@@ -2,6 +2,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import Container from "@mui/material/Container";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import Button from "@mui/material/Button";
+import Alert from "@mui/material/Alert";
 
 type TripRow = {
   id: string;
@@ -49,37 +56,37 @@ export default function TripsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="mb-6 text-2xl font-semibold">我的行程</h1>
-        {loading && <p className="text-sm text-gray-600">加载中...</p>}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        {!loading && !email && (
-          <p className="text-sm text-gray-600">
-            请先<Link className="text-blue-600 hover:underline px-1" href="/auth/sign-in">登录</Link>以查看你的行程。
-          </p>
-        )}
-        {!loading && email && trips && trips.length === 0 && (
-          <p className="text-sm text-gray-600">还没有保存的行程，快去首页生成一个吧。</p>
-        )}
-        <ul className="grid gap-4 sm:grid-cols-2">
-          {trips?.map((t) => (
-            <li key={t.id} className="rounded-lg border bg-white p-4 shadow-sm">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-lg font-medium">{t.title ?? `${t.destination ?? "行程"}`}</h2>
-                <Link href={`/trips/${t.id}`} className="text-blue-600 hover:underline">
-                  查看详情
-                </Link>
-              </div>
-              <p className="text-sm text-gray-600">目的地：{t.destination ?? "-"}</p>
-              <p className="text-sm text-gray-600">
-                日期：{t.start_date ?? "?"} - {t.end_date ?? "?"}
-              </p>
-              <p className="text-xs text-gray-400 mt-1">创建于 {new Date(t.created_at).toLocaleString()}</p>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
+    <Container maxWidth="lg" sx={{ py: 6 }}>
+      <Typography variant="h5" fontWeight={600} sx={{ mb: 2 }}>我的行程</Typography>
+      {loading && <Typography variant="body2" color="text.secondary">加载中...</Typography>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {!loading && !email && (
+        <Typography variant="body2" color="text.secondary">
+          请先
+          <Button component={Link} href="/auth/sign-in" variant="text" sx={{ px: 0, minWidth: 0 }}>登录</Button>
+          以查看你的行程。
+        </Typography>
+      )}
+      {!loading && email && trips && trips.length === 0 && (
+        <Typography variant="body2" color="text.secondary">还没有保存的行程，快去首页生成一个吧。</Typography>
+      )}
+      <Box component="ul" sx={{ m: 0, p: 0, listStyle: "none", display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
+        {trips?.map((t) => (
+          <Box component="li" key={t.id}>
+            <Card variant="outlined">
+              <CardContent>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+                  <Typography variant="subtitle1" fontWeight={600}>{t.title ?? `${t.destination ?? "行程"}`}</Typography>
+                  <Button component={Link} href={`/trips/${t.id}`} variant="text">查看详情</Button>
+                </Box>
+                <Typography variant="body2" color="text.secondary">目的地：{t.destination ?? "-"}</Typography>
+                <Typography variant="body2" color="text.secondary">日期：{t.start_date ?? "?"} - {t.end_date ?? "?"}</Typography>
+                <Typography variant="caption" color="text.disabled" display="block" sx={{ mt: 0.5 }}>创建于 {new Date(t.created_at).toLocaleString()}</Typography>
+              </CardContent>
+            </Card>
+          </Box>
+        ))}
+      </Box>
+    </Container>
   );
 }

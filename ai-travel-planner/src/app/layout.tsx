@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AppHeader from "@/components/app-header";
+import { MUIThemeProvider } from "@/components/providers/mui-theme-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,15 +25,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-      <html lang="en">
-          <body
-              className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-              <div className="mx-auto max-w-5xl px-4 py-6">
-                  {/* 全局头部（展示登录状态与导航） */}
-                  <AppHeader />
-                  {children}
-              </div>
-          </body>
-      </html>
+    <html lang="zh-CN">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <MUIThemeProvider>
+          <div className="mx-auto max-w-5xl px-4 py-6">
+            {/* 全局头部（展示登录状态与导航） */}
+            <AppHeader />
+            {children}
+          </div>
+        </MUIThemeProvider>
+      </body>
+    </html>
   );
 }

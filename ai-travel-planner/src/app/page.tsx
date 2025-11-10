@@ -2,9 +2,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Container from "@mui/material/Container";
+import Box from "@mui/material/Box";
+import TextField from "@mui/material/TextField";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
 import type { PlanRequest, PlanResponse } from "@/types/plan";
 import { isUuidV4 } from "@/lib/uuid";
 const MapView = dynamic(
@@ -60,151 +66,117 @@ export default function Home() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <div className="mx-auto max-w-5xl px-4 py-10">
-                <div className="grid gap-6 md:grid-cols-2">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>描述你的旅行需求</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <Input
+        <Container maxWidth="lg" sx={{ py: 6 }}>
+            <Box
+                sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+                    gap: 2,
+                }}
+            >
+                <Card variant="outlined">
+                    <CardHeader title="描述你的旅行需求" />
+                    <CardContent>
+                        <Box sx={{ display: "grid", gap: 2 }}>
+                            <TextField
                                 label="目的地"
                                 placeholder="例如：日本东京"
+                                fullWidth
                                 value={destination}
                                 onChange={(e) => setDestination(e.target.value)}
                             />
-                            <div className="grid grid-cols-2 gap-3">
-                                <Input
+                            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                                <TextField
                                     label="天数"
                                     type="number"
-                                    min={1}
+                                    inputProps={{ min: 1 }}
                                     value={days}
-                                    onChange={(e) =>
-                                        setDays(Number(e.target.value))
-                                    }
+                                    onChange={(e) => setDays(Number(e.target.value))}
                                 />
-                                <Input
+                                <TextField
                                     label="预算（元）"
                                     type="number"
-                                    min={0}
+                                    inputProps={{ min: 0 }}
                                     value={budget}
-                                    onChange={(e) =>
-                                        setBudget(
-                                            e.target.value === ""
-                                                ? ""
-                                                : Number(e.target.value)
-                                        )
-                                    }
+                                    onChange={(e) => setBudget(e.target.value === "" ? "" : Number(e.target.value))}
                                 />
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <Input
+                            </Box>
+                            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                                <TextField
                                     label="同行人数"
                                     type="number"
-                                    min={1}
+                                    inputProps={{ min: 1 }}
                                     value={partySize}
-                                    onChange={(e) =>
-                                        setPartySize(
-                                            e.target.value === ""
-                                                ? ""
-                                                : Number(e.target.value)
-                                        )
-                                    }
+                                    onChange={(e) => setPartySize(e.target.value === "" ? "" : Number(e.target.value))}
                                 />
-                                <Input
+                                <TextField
                                     label="偏好"
                                     placeholder="例如：美食、动漫、亲子"
                                     value={preferences}
-                                    onChange={(e) =>
-                                        setPreferences(e.target.value)
-                                    }
+                                    onChange={(e) => setPreferences(e.target.value)}
                                 />
-                            </div>
-                            <div className="pt-2">
-                                <Button
-                                    onClick={generatePlan}
-                                    disabled={loading || !destination}>
+                            </Box>
+                            <Box>
+                                <Button variant="contained" onClick={generatePlan} disabled={loading || !destination}>
                                     {loading ? "生成中..." : "生成行程"}
                                 </Button>
-                            </div>
-                            <p className="text-xs text-gray-500">
-                                可在设置页配置阿里云百炼与高德
-                                Key。当前为占位实现，稍后接入真实服务。
-                            </p>
-                        </CardContent>
-                    </Card>
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                                可在设置页配置阿里云百炼与高德 Key。
+                            </Typography>
+                        </Box>
+                    </CardContent>
+                </Card>
 
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>生成结果</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            {error && (
-                                <p className="text-sm text-red-600">{error}</p>
-                            )}
-                            {!error && !result && (
-                                <p className="text-sm text-gray-600">
-                                    填写左侧表单并点击“生成行程”。
-                                </p>
-                            )}
-                            {result && (
-                                <div className="space-y-3">
-                                    <div>
-                                        <h3 className="font-medium">
-                                            {result.destination} · {result.days}{" "}
-                                            天行程
-                                        </h3>
-                                    </div>
-                                    {/* 简易地图演示：如果行程项包含经纬度，则渲染 markers */}
-                                    <MapView
-                                        className="h-64 w-full rounded-md border"
-                                        markers={result.itinerary
-                                            .flatMap((d) => d.items)
-                                            .filter(
-                                                (it) =>
-                                                    typeof it.lat ===
-                                                        "number" &&
-                                                    typeof it.lng === "number"
-                                            )
-                                            .map((it) => ({
-                                                lng: it.lng as number,
-                                                lat: it.lat as number,
-                                                title: it.name,
-                                            }))}
-                                    />
-                                    <ol className="space-y-2">
-                                        {result.itinerary.map((day) => (
-                                            <li
-                                                key={day.day_index}
-                                                className="rounded-md border p-2">
-                                                <div className="mb-1 text-sm font-semibold">
-                                                    第 {day.day_index} 天
-                                                </div>
-                                                <ul className="list-inside list-disc text-sm text-gray-700">
-                                                    {day.items.map(
-                                                        (it, idx) => (
-                                                            <li key={idx}>
-                                                                <span className="font-medium">
-                                                                    [{it.type}]
-                                                                </span>{" "}
-                                                                {it.name}
-                                                                {it.estimated_cost
-                                                                    ? ` · 约 ¥${it.estimated_cost}`
-                                                                    : ""}
-                                                            </li>
-                                                        )
-                                                    )}
-                                                </ul>
-                                            </li>
-                                        ))}
-                                    </ol>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-            </div>
-        </div>
+                <Card variant="outlined">
+                    <CardHeader title="生成结果" />
+                    <CardContent>
+                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                        {!error && !result && (
+                            <Typography variant="body2" color="text.secondary">填写左侧表单并点击“生成行程”。</Typography>
+                        )}
+                        {result && (
+                            <Box sx={{ display: "grid", gap: 2 }}>
+                                <Typography variant="subtitle1" fontWeight={600}>
+                                    {result.destination} · {result.days} 天行程
+                                </Typography>
+                                <MapView
+                                    className="h-64 w-full rounded-md border"
+                                    markers={result.itinerary
+                                        .flatMap((d) => d.items)
+                                        .filter(
+                                            (it) => typeof it.lat === "number" && typeof it.lng === "number"
+                                        )
+                                        .map((it) => ({ lng: it.lng as number, lat: it.lat as number, title: it.name }))}
+                                />
+                                <Box component="ol" sx={{ m: 0, p: 0, listStyle: "none", display: "grid", gap: 1 }}>
+                                    {result.itinerary.map((day) => (
+                                        <Box
+                                            component="li"
+                                            key={day.day_index}
+                                            sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1 }}
+                                        >
+                                            <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                                                第 {day.day_index} 天
+                                            </Typography>
+                                            <Box component="ul" sx={{ m: 0, pl: 2 }}>
+                                                {day.items.map((it, idx) => (
+                                                    <li key={idx}>
+                                                        <Typography variant="body2">
+                                                            <strong>[{it.type}]</strong> {it.name}
+                                                            {it.estimated_cost ? ` · 约 ¥${it.estimated_cost}` : ""}
+                                                        </Typography>
+                                                    </li>
+                                                ))}
+                                            </Box>
+                                        </Box>
+                                    ))}
+                                </Box>
+                            </Box>
+                        )}
+                    </CardContent>
+                </Card>
+            </Box>
+        </Container>
     );
 }
