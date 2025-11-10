@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isUuidV4 } from "@/lib/uuid";
 // MUI 组件引入增强 Material Design 风格
-import { Box, Paper, Typography, Divider, TextField, Button as MUIButton, Chip, LinearProgress } from "@mui/material";
+import { Box, Paper, Typography, Divider, TextField, Button as MUIButton, Chip, LinearProgress, MenuItem } from "@mui/material";
 import SaveIcon from "@mui/icons-material/Save";
 import AddIcon from "@mui/icons-material/Add";
 
@@ -169,6 +169,16 @@ export default function TripDetailClient({ id }: { id: string }) {
       );
   }, [expenses]);
 
+  const expenseByCategory = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of expenses) {
+      const key = (e.category || "other").toLowerCase();
+      const v = typeof e.amount === "number" ? e.amount : 0;
+      map.set(key, (map.get(key) || 0) + v);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [expenses]);
+
     async function saveBudget() {
       if (!trip) return;
       const value = Number(budgetEdit.trim());
@@ -264,14 +274,21 @@ export default function TripDetailClient({ id }: { id: string }) {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, fontSize: 14 }}>
                 <Typography variant="body2">总预算：¥{trip!.budget_total!.toFixed(0)}</Typography>
                 <Typography variant="body2">当前估算花费：¥{estimatedTotal.toFixed(0)}</Typography>
+                <Typography variant="body2">真实支出：¥{expenseSum.toFixed(0)}</Typography>
                 <Typography variant="body2">
-                  预计结余：
-                  <Box component="span" sx={{ color: trip!.budget_total! - estimatedTotal < 0 ? 'error.main' : 'success.main' }}>
-                    ¥{(trip!.budget_total! - estimatedTotal).toFixed(0)}
+                  相对预算结余：
+                  <Box component="span" sx={{ color: trip!.budget_total! - expenseSum < 0 ? 'error.main' : 'success.main' }}>
+                    ¥{(trip!.budget_total! - expenseSum).toFixed(0)}
                   </Box>
                 </Typography>
-                <LinearProgress variant="determinate" value={Math.min(100, (estimatedTotal / (trip!.budget_total! || 1)) * 100)} sx={{ mt: 1 }} />
-                <Typography variant="caption" color="text.secondary">利用率 {(estimatedTotal / (trip!.budget_total! || 1) * 100).toFixed(1)}%</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  实际-估算差额：{(expenseSum - estimatedTotal) >= 0 ? '+' : ''}¥{(expenseSum - estimatedTotal).toFixed(0)}
+                </Typography>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="caption" color="text.secondary">估算占比</Typography>
+                <LinearProgress variant="determinate" value={Math.min(100, (estimatedTotal / (trip!.budget_total! || 1)) * 100)} />
+                <Typography variant="caption" color="text.secondary">实际占比</Typography>
+                <LinearProgress variant="determinate" value={Math.min(100, (expenseSum / (trip!.budget_total! || 1)) * 100)} />
               </Box>
             ) : (
               <Typography variant="body2" color="text.secondary">未设置总预算。当前估算花费：¥{estimatedTotal.toFixed(0)}</Typography>
@@ -291,9 +308,23 @@ export default function TripDetailClient({ id }: { id: string }) {
   <Box>
           <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Typography variant="h6" gutterBottom>支出记录</Typography>
+            {expenseByCategory.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {expenseByCategory.map(([cat, sum]) => (
+                  <Chip key={cat} size="small" label={`${cat} ¥${sum.toFixed(0)}`} />
+                ))}
+              </Box>
+            )}
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <TextField size="small" label="金额" value={expenseForm.amount} onChange={(e) => setExpenseForm(f => ({ ...f, amount: e.target.value }))} />
-              <TextField size="small" label="类别" value={expenseForm.category} onChange={(e) => setExpenseForm(f => ({ ...f, category: e.target.value }))} />
+              <TextField size="small" select label="类别" value={expenseForm.category} onChange={(e) => setExpenseForm(f => ({ ...f, category: e.target.value }))}>
+                <MenuItem value="food">美食</MenuItem>
+                <MenuItem value="transport">交通</MenuItem>
+                <MenuItem value="hotel">住宿</MenuItem>
+                <MenuItem value="sight">门票/景点</MenuItem>
+                <MenuItem value="shopping">购物</MenuItem>
+                <MenuItem value="other">其他</MenuItem>
+              </TextField>
               <TextField size="small" label="备注" value={expenseForm.note} onChange={(e) => setExpenseForm(f => ({ ...f, note: e.target.value }))} />
               <MUIButton size="small" variant="contained" startIcon={<AddIcon />} onClick={addExpense} disabled={savingExpense}>{savingExpense ? '提交中' : '添加支出'}</MUIButton>
             </Box>
@@ -304,6 +335,9 @@ export default function TripDetailClient({ id }: { id: string }) {
                   （占总预算 {(expenseSum / trip.budget_total * 100).toFixed(1)}% ，差额 ¥{(trip.budget_total - expenseSum).toFixed(0)}）
                 </>
               )}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              与估算相比：{(expenseSum - estimatedTotal) >= 0 ? '超出' : '低于'} ¥{Math.abs(expenseSum - estimatedTotal).toFixed(0)}
             </Typography>
             <Box sx={{ maxHeight: 180, overflowY: 'auto', mt: 1, pr: 1 }}>
               {expenses.length === 0 && <Typography variant="body2" color="text.secondary">暂无记录</Typography>}

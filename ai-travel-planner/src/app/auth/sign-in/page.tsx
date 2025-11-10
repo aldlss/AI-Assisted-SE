@@ -1,9 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import Container from "@mui/material/Container";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import CardContent from "@mui/material/CardContent";
+import TextField from "@mui/material/TextField";
+import Button from "@mui/material/Button";
+import Alert from "@mui/material/Alert";
+import Typography from "@mui/material/Typography";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
@@ -52,28 +57,28 @@ export default function SignInPage() {
   }
 
   return (
-    <div className="min-h-[60vh]">
-      <Card>
-        <CardHeader>
-          <CardTitle>邮箱登录</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Input
+    <Container maxWidth="sm" sx={{ py: 6 }}>
+      <Card variant="outlined">
+        <CardHeader title="邮箱登录" />
+        <CardContent sx={{ display: 'grid', gap: 2 }}>
+          <TextField
             label="邮箱"
             type="email"
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            fullWidth
           />
-          <div>
-            <Button onClick={sendMagicLink} disabled={!email}>
-              发送登录链接
-            </Button>
-          </div>
-          {sent && <p className="text-sm text-green-700">{sent}</p>}
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          <Button variant="contained" onClick={sendMagicLink} disabled={!email}>
+            发送登录链接
+          </Button>
+          {sent && <Alert severity="success" variant="outlined">{sent}</Alert>}
+          {error && <Alert severity="error" variant="outlined">{error}</Alert>}
+          <Typography variant="caption" color="text.secondary">
+            登录链接将发送至你的邮箱，点击即可完成登录。
+          </Typography>
         </CardContent>
       </Card>
-    </div>
+    </Container>
   );
 }

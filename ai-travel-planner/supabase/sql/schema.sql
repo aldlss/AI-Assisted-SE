@@ -73,6 +73,9 @@ create table if not exists public.budgets (
   updated_at timestamptz default now()
 );
 
+-- 确保每个行程仅有一条预算记录（如未创建过则创建唯一索引）
+create unique index if not exists budgets_trip_id_key on public.budgets(trip_id);
+
 -- expenses
 create table if not exists public.expenses (
   id uuid primary key default gen_random_uuid(),
