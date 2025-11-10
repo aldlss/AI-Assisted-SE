@@ -156,33 +156,62 @@ export default function TripDetailClient({ id }: { id: string }) {
   const [routePaths, setRoutePaths] = useState<Record<string, { lng: number; lat: number }[]>>({});
   const [loadingRoute, setLoadingRoute] = useState<Record<string, boolean>>({});
 
-  async function previewDrivingRoute(itineraryId: string, list: ItemRow[]) {
-    const coords = list
-      .filter((it) => typeof it.lng === "number" && typeof it.lat === "number")
-      .map((it) => ({ lng: it.lng as number, lat: it.lat as number }));
-    if (coords.length < 2) return;
-    const origin = `${coords[0].lng},${coords[0].lat}`;
-    const destination = `${coords[coords.length - 1].lng},${coords[coords.length - 1].lat}`;
-    setLoadingRoute((s) => ({ ...s, [itineraryId]: true }));
-    try {
-      const r = await fetch(`/api/map/direction/driving?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`);
-      const data = await r.json();
-      // 解析高德返回的 polyline（取首条路径）
-  type AMapStep = { polyline?: string };
-  const steps: string[] | undefined = data?.route?.paths?.[0]?.steps?.map((s: AMapStep) => s.polyline || "");
-      const allPoints: { lng: number; lat: number }[] = [];
-      if (steps && steps.length) {
-        for (const seg of steps) {
-          const pairs = String(seg).split(";");
-          for (const p of pairs) {
-            const [lngStr, latStr] = p.split(",");
-            const lng = Number(lngStr);
-            const lat = Number(latStr);
-            if (Number.isFinite(lng) && Number.isFinite(lat)) allPoints.push({ lng, lat });
+  function parseAmapPolyline(data: unknown): { lng: number; lat: number }[] {
+    type AMapStep = { polyline?: string };
+    type AMapResponse = { route?: { paths?: Array<{ steps?: AMapStep[] }> } };
+    const resp = data as AMapResponse;
+    const steps: string[] | undefined = resp.route?.paths?.[0]?.steps?.map((s: AMapStep) => s.polyline || "");
+    const pts: { lng: number; lat: number }[] = [];
+    if (steps && steps.length) {
+      for (const seg of steps) {
+        const pairs = String(seg).split(";");
+        for (const p of pairs) {
+          const [lngStr, latStr] = p.split(",");
+          const lng = Number(lngStr);
+          const lat = Number(latStr);
+          if (Number.isFinite(lng) && Number.isFinite(lat)) {
+            // 避免重复点
+            const last = pts[pts.length - 1];
+            if (!last || last.lng !== lng || last.lat !== lat) pts.push({ lng, lat });
           }
         }
       }
-      if (allPoints.length) setRoutePaths((m) => ({ ...m, [itineraryId]: allPoints }));
+    }
+    return pts;
+  }
+
+  async function previewDrivingRoute(itineraryId: string, list: ItemRow[]) {
+    // 生成完整路径：将当天所有可定位的点按顺序相邻两两请求路径并拼接
+    const points = list
+      .filter((it) => typeof it.lng === "number" && typeof it.lat === "number")
+      .map((it) => ({ lng: it.lng as number, lat: it.lat as number }));
+    if (points.length < 2) return;
+    setLoadingRoute((s) => ({ ...s, [itineraryId]: true }));
+    try {
+      const merged: { lng: number; lat: number }[] = [];
+      for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i];
+        const b = points[i + 1];
+        const origin = `${a.lng},${a.lat}`;
+        const destination = `${b.lng},${b.lat}`;
+        const r = await fetch(`/api/map/direction/driving?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`);
+        const data = await r.json();
+        const segPts = parseAmapPolyline(data);
+        if (segPts.length) {
+          if (merged.length) {
+            // 去重首尾衔接点
+            const last = merged[merged.length - 1];
+            if (last.lng === segPts[0].lng && last.lat === segPts[0].lat) {
+              merged.push(...segPts.slice(1));
+            } else {
+              merged.push(...segPts);
+            }
+          } else {
+            merged.push(...segPts);
+          }
+        }
+      }
+      if (merged.length) setRoutePaths((m) => ({ ...m, [itineraryId]: merged }));
     } catch (e) {
       console.error(e);
     } finally {
@@ -439,7 +468,7 @@ export default function TripDetailClient({ id }: { id: string }) {
                           {dayMarkers.length >= 2 && (
                             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
                               <MUIButton size="small" variant="outlined" onClick={() => previewDrivingRoute(d.id, list)} disabled={!!loadingRoute[d.id]}>
-                                {loadingRoute[d.id] ? '路线加载中…' : '预览驾车路线（首站→末站）'}
+                                {loadingRoute[d.id] ? '路线加载中…' : '预览完整驾车路线（顺序串联）'}
                               </MUIButton>
                             </Box>
                           )}
