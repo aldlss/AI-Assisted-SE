@@ -153,6 +153,43 @@ export default function TripDetailClient({ id }: { id: string }) {
     return map;
   }, [items]);
 
+  const [routePaths, setRoutePaths] = useState<Record<string, { lng: number; lat: number }[]>>({});
+  const [loadingRoute, setLoadingRoute] = useState<Record<string, boolean>>({});
+
+  async function previewDrivingRoute(itineraryId: string, list: ItemRow[]) {
+    const coords = list
+      .filter((it) => typeof it.lng === "number" && typeof it.lat === "number")
+      .map((it) => ({ lng: it.lng as number, lat: it.lat as number }));
+    if (coords.length < 2) return;
+    const origin = `${coords[0].lng},${coords[0].lat}`;
+    const destination = `${coords[coords.length - 1].lng},${coords[coords.length - 1].lat}`;
+    setLoadingRoute((s) => ({ ...s, [itineraryId]: true }));
+    try {
+      const r = await fetch(`/api/map/direction/driving?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`);
+      const data = await r.json();
+      // 解析高德返回的 polyline（取首条路径）
+  type AMapStep = { polyline?: string };
+  const steps: string[] | undefined = data?.route?.paths?.[0]?.steps?.map((s: AMapStep) => s.polyline || "");
+      const allPoints: { lng: number; lat: number }[] = [];
+      if (steps && steps.length) {
+        for (const seg of steps) {
+          const pairs = String(seg).split(";");
+          for (const p of pairs) {
+            const [lngStr, latStr] = p.split(",");
+            const lng = Number(lngStr);
+            const lat = Number(latStr);
+            if (Number.isFinite(lng) && Number.isFinite(lat)) allPoints.push({ lng, lat });
+          }
+        }
+      }
+      if (allPoints.length) setRoutePaths((m) => ({ ...m, [itineraryId]: allPoints }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingRoute((s) => ({ ...s, [itineraryId]: false }));
+    }
+  }
+
   const estimatedTotal = useMemo(() => {
       return items.reduce(
           (sum, it) =>
@@ -392,7 +429,20 @@ export default function TripDetailClient({ id }: { id: string }) {
                       return (
                         <Paper key={d.id} variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2 }}>
                           <Typography variant="h6" gutterBottom>第 {d.day_index} 天 {d.note ? `· ${d.note}` : ''}</Typography>
-                          {dayMarkers.length > 0 && <MapView className="h-56 w-full rounded-md" markers={dayMarkers} />}
+                          {dayMarkers.length > 0 && (
+                            <MapView
+                              className="h-56 w-full rounded-md"
+                              markers={dayMarkers}
+                              polyline={routePaths[d.id] ? { path: routePaths[d.id] } : null}
+                            />
+                          )}
+                          {dayMarkers.length >= 2 && (
+                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                              <MUIButton size="small" variant="outlined" onClick={() => previewDrivingRoute(d.id, list)} disabled={!!loadingRoute[d.id]}>
+                                {loadingRoute[d.id] ? '路线加载中…' : '预览驾车路线（首站→末站）'}
+                              </MUIButton>
+                            </Box>
+                          )}
                           <Divider sx={{ my: 1.5 }} />
                           <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
                             {list.map(it => (
