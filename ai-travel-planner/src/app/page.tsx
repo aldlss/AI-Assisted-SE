@@ -14,14 +14,17 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import type { PlanRequest, PlanResponse } from "@/types/plan";
 import { isUuidV4 } from "@/lib/uuid";
-import { parseSpeechToForm } from "../lib/speechParser";
+// 语音现在直接通过服务端 LLM 提示词生成，不再本地规则解析
 import { VoiceInput } from "@/components/asr/VoiceInput";
+import { useAuth } from "@/lib/useAuth";
+import Link from "next/link";
 const MapView = dynamic(
     () => import("@/components/map/MapView").then((m) => m.MapView),
     { ssr: false }
 );
 
 export default function Home() {
+    const { user, loading: authLoading } = useAuth();
     // 表单状态
     const [destination, setDestination] = useState("");
     const [days, setDays] = useState(3);
@@ -42,17 +45,25 @@ export default function Home() {
         setLoading(true);
         setError(null);
         setResult(null);
-            try {
-            const dateRange = startDate ? {
-                start: startDate,
-                end: (() => {
-                    try {
-                        const d = new Date(startDate);
-                        d.setDate(d.getDate() + Math.max(0, days - 1));
-                        return d.toISOString().slice(0,10);
-                    } catch { return startDate; }
-                })(),
-            } : undefined;
+        try {
+            if (!user) {
+                setError("请先登录后再生成行程");
+                return;
+            }
+            const dateRange = startDate
+                ? {
+                      start: startDate,
+                      end: (() => {
+                          try {
+                              const d = new Date(startDate);
+                              d.setDate(d.getDate() + Math.max(0, days - 1));
+                              return d.toISOString().slice(0, 10);
+                          } catch {
+                              return startDate;
+                          }
+                      })(),
+                  }
+                : undefined;
 
             const payload: PlanRequest = {
                 destination,
@@ -65,8 +76,10 @@ export default function Home() {
             const res = await fetch("/api/plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
                 body: JSON.stringify(payload),
             });
+            if (res.status === 401) throw new Error("未登录，无法保存行程");
             if (!res.ok) throw new Error("生成行程失败，请稍后重试");
             const data = (await res.json()) as PlanResponse;
             setResult(data);
@@ -77,33 +90,53 @@ export default function Home() {
             }
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
-            setError(msg || "发生未知错误");
+            if (/Failed to fetch/i.test(msg)) {
+                setError(
+                    "网络错误：请确认手机与服务器同一网络，使用 HTTPS 访问，并确保服务在运行"
+                );
+            } else {
+                setError(msg || "发生未知错误");
+            }
         } finally {
             setLoading(false);
         }
     }
 
-    function onSpeech(text: string) {
-        // 解析中文口述，智能填充表单；若关键信息齐全则自动生成
-        setSpeechFilling(true);
+    async function onSpeech(text: string) {
+        // 手动点击语音卡片的“提交”后，直接走语音专用生成接口
+        setLoading(true);
+        setError(null);
+        setResult(null);
         try {
-            const parsed = parseSpeechToForm(text);
-            if (parsed.destination) setDestination(parsed.destination);
-            if (typeof parsed.days === "number") setDays(parsed.days);
-            if (typeof parsed.budget === "number" || parsed.budget === "") setBudget(parsed.budget as number | "");
-            if (typeof parsed.partySize === "number" || parsed.partySize === "") setPartySize(parsed.partySize as number | "");
-            if (parsed.preferences) setPreferences(parsed.preferences);
-            // 自动触发：当 destination 和 days 存在时
-            const dest = parsed.destination || destination;
-            const d = typeof parsed.days === "number" ? parsed.days : days;
-            if (dest && d && !loading) {
-                // 微小延迟以确保状态已入队
-                setTimeout(() => {
-                    generatePlan();
-                }, 100);
+            if (!user) {
+                setError("请先登录后再生成行程");
+                return;
+            }
+            const res = await fetch("/api/voice/plan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ text }),
+            });
+            if (res.status === 401) throw new Error("未登录，无法保存行程");
+            if (!res.ok) throw new Error("语音生成行程失败，请稍后重试");
+            const data = (await res.json()) as PlanResponse;
+            setResult(data);
+            if (isUuidV4(data.tripId)) {
+                router.push(`/trips/${data.tripId}`);
+                return;
+            }
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (/Failed to fetch/i.test(msg)) {
+                setError(
+                    "网络错误：请确认手机与服务器同一网络，使用 HTTPS 访问，并确保服务在运行"
+                );
+            } else {
+                setError(msg || "发生未知错误");
             }
         } finally {
-            setSpeechFilling(false);
+            setLoading(false);
         }
     }
 
@@ -207,26 +240,54 @@ export default function Home() {
                                 <Button
                                     variant="contained"
                                     onClick={generatePlan}
-                                    disabled={loading || !destination}
+                                    disabled={
+                                        loading ||
+                                        !destination ||
+                                        authLoading ||
+                                        !user
+                                    }
                                     sx={{ borderRadius: 999, px: 3 }}>
                                     {loading ? "生成中..." : "生成行程"}
                                 </Button>
                             </Box>
+                            {!authLoading && !user && (
+                                <Alert severity="info" sx={{ mt: 1 }}>
+                                    需登录后才能生成行程，
+                                    <Button
+                                        component={Link}
+                                        href="/auth/sign-in"
+                                        size="small">
+                                        去登录
+                                    </Button>
+                                </Alert>
+                            )}
                             <Typography
                                 variant="caption"
                                 color="text.secondary">
                                 可在设置页配置阿里云百炼与高德 Key。
                             </Typography>
                             <Box sx={{ mt: 1 }}>
-                                <VoiceInput onText={onSpeech} />
+                                <VoiceInput onText={onSpeech} isGenerating={loading} />
                                 <Typography
                                     variant="caption"
                                     color="text.secondary">
                                     说：&quot;帮我规划{destination || "上海"}
-                                    {days}天，预算{Number(budget) || 5000}元，
+                                    {days}天（{startDate || "选择出发日期"}
+                                    {startDate
+                                        ? ` 起，至 ${(() => {
+                                              try {
+                                                  const d = new Date(startDate as string);
+                                                  d.setDate(d.getDate() + Math.max(0, days - 1));
+                                                  return d.toISOString().slice(0, 10);
+                                              } catch {
+                                                  return startDate;
+                                              }
+                                          })()}`
+                                        : ""}
+                                    ），预算{Number(budget) || 5000}元，
                                     {Number(partySize) || 2}人，偏好
                                     {preferences || "美食风景"}
-                                    &quot;，会自动填充并生成行程。
+                                    &quot;，提交后将直接按语音生成行程（服务端会附加提示词确保信息被完整读取）。
                                 </Typography>
                             </Box>
                         </Box>
@@ -258,15 +319,41 @@ export default function Home() {
                                     animate={{ opacity: 1, scale: 1 }}
                                     transition={{ duration: 0.3 }}>
                                     <MapView
-                                      className="h-64 w-full rounded-md border"
-                                      markers={result.itinerary
-                                        .flatMap((d) => d.items)
-                                        .map((it) => ({
-                                          lng: typeof it.lng === 'string' ? Number(it.lng) : (it.lng as number | null),
-                                          lat: typeof it.lat === 'string' ? Number(it.lat) : (it.lat as number | null),
-                                          title: it.name,
-                                        }))
-                                        .filter((m) => Number.isFinite(m.lat as number) && Number.isFinite(m.lng as number)) as {lng:number;lat:number;title?:string}[]}
+                                        className="h-64 w-full rounded-md border"
+                                        markers={
+                                            result.itinerary
+                                                .flatMap((d) => d.items)
+                                                .map((it) => ({
+                                                    lng:
+                                                        typeof it.lng ===
+                                                        "string"
+                                                            ? Number(it.lng)
+                                                            : (it.lng as
+                                                                  | number
+                                                                  | null),
+                                                    lat:
+                                                        typeof it.lat ===
+                                                        "string"
+                                                            ? Number(it.lat)
+                                                            : (it.lat as
+                                                                  | number
+                                                                  | null),
+                                                    title: it.name,
+                                                }))
+                                                .filter(
+                                                    (m) =>
+                                                        Number.isFinite(
+                                                            m.lat as number
+                                                        ) &&
+                                                        Number.isFinite(
+                                                            m.lng as number
+                                                        )
+                                                ) as {
+                                                lng: number;
+                                                lat: number;
+                                                title?: string;
+                                            }[]
+                                        }
                                     />
                                 </motion.div>
                                 <Box

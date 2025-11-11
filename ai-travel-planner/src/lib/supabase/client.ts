@@ -8,12 +8,12 @@ export function createSupabaseBrowserClient() {
     console.warn("Supabase 环境变量未配置，某些功能将不可用");
   }
   return createBrowserClient(url || "", anon || "", {
-    auth: {
-      // 使用 PKCE 流程以支持 magic link / OAuth 回调 code 交换
-      flowType: "pkce",
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
+      auth: {
+          // 简化：邮箱+密码，不再使用 PKCE / 回调码交换
+          flowType: "implicit",
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false,
+      },
   });
 }
