@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AppHeader from "@/components/app-header";
 import { MUIThemeProvider } from "@/components/providers/mui-theme-provider";
+import { PageTransition } from "@/components/providers/page-transition";
+import { EmotionCacheProvider } from "@/components/providers/emotion-cache";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,16 +27,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <MUIThemeProvider>
-          <div className="mx-auto max-w-5xl px-4 py-6">
-            {/* 全局头部（展示登录状态与导航） */}
-            <AppHeader />
-            {children}
-          </div>
-        </MUIThemeProvider>
-      </body>
-    </html>
+      <html lang="zh-CN">
+      <head>
+        <meta name="emotion-insertion-point" content="" />
+      </head>
+          <body
+              className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <EmotionCacheProvider>
+          <MUIThemeProvider>
+            <div className="mx-auto max-w-6xl px-4 py-6">
+              <AppHeader />
+              <PageTransition>{children}</PageTransition>
+            </div>
+          </MUIThemeProvider>
+        </EmotionCacheProvider>
+          </body>
+      </html>
   );
 }

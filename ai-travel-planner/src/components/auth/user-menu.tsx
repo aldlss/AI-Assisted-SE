@@ -30,9 +30,9 @@ export function UserMenu() {
     );
   }
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-gray-600">{email}</span>
-      <SignOutButton />
-    </div>
+      <div className="flex items-center gap-3">
+          <span className="text-[var(--neutral-700)] font-medium">{email}</span>
+          <SignOutButton />
+      </div>
   );
 }

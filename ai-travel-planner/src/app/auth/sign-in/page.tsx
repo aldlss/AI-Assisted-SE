@@ -52,7 +52,9 @@ export default function SignInPage() {
     if (error) {
       setError(error.message);
     } else {
-      setSent("登录链接已发送到邮箱，请查收并点击链接完成登录。");
+      setSent(
+          "登录链接已发送到邮箱，请查收并点击链接完成登录（可能需要一段时间才能收到）。"
+      );
     }
   }
 

@@ -11,6 +11,7 @@ import SaveIcon from "@mui/icons-material/Save";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import { motion } from "framer-motion";
 
 const MapView = dynamic(() => import("@/components/map/MapView").then((m) => m.MapView), { ssr: false });
 
@@ -151,11 +152,15 @@ export default function TripDetailClient({ id }: { id: string }) {
     })();
   }, [id]);
 
-  const markers = useMemo(() => {
-    return items
-      .filter((it) => typeof it.lat === "number" && typeof it.lng === "number")
-      .map((it) => ({ lat: it.lat as number, lng: it.lng as number, title: it.name ?? undefined }));
-  }, [items]);
+    const markers = useMemo(() => {
+        return items
+            .map((it) => ({
+                lat: typeof it.lat === 'string' ? Number(it.lat) : it.lat,
+                lng: typeof it.lng === 'string' ? Number(it.lng) : it.lng,
+                title: it.name ?? undefined,
+            }))
+            .filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lng)) as {lat:number;lng:number;title?:string}[];
+    }, [items]);
 
   const itemsByItinerary = useMemo(() => {
     const map = new Map<string, ItemRow[]>();
@@ -368,350 +373,929 @@ export default function TripDetailClient({ id }: { id: string }) {
   };
 
   return (
-    <>
-    <Box>
-      <Paper elevation={0} sx={{ mb: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-        <Box>
-          <Typography variant="h4" fontWeight={600} gutterBottom sx={{ mb: 0 }}>
-            {trip?.title ?? "行程详情"}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            目的地：{trip?.destination ?? "-"} ｜ 日期：{trip?.start_date ?? "?"} ~ {trip?.end_date ?? "?"}
-          </Typography>
-        </Box>
-        <Tooltip title="删除整个行程">
-          <span>
-            <MUIButton
-              size="small"
-              color="error"
-              variant="text"
-              startIcon={<DeleteIcon />}
-              disabled={!trip}
-              onClick={() => setConfirmTripOpen(true)}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              删除行程
-            </MUIButton>
-          </span>
-        </Tooltip>
-      </Paper>
-
-      {/* 顶部栅格：预算 + 支出 + 地图 */}
-      <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, mb: 4 }}>
-        <Box>
-          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>预算概览</Typography>
-            {typeof trip?.budget_total === "number" ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, fontSize: 14 }}>
-                <Typography variant="body2">总预算：¥{trip!.budget_total!.toFixed(0)}</Typography>
-                <Typography variant="body2">当前估算花费：¥{estimatedTotal.toFixed(0)}</Typography>
-                <Typography variant="body2">真实支出：¥{expenseSum.toFixed(0)}</Typography>
-                <Typography variant="body2">
-                  相对预算结余：
-                  <Box component="span" sx={{ color: trip!.budget_total! - expenseSum < 0 ? 'error.main' : 'success.main' }}>
-                    ¥{(trip!.budget_total! - expenseSum).toFixed(0)}
+      <>
+          <Box
+              component={motion.div}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.32 }}>
+              <Paper
+                  className="glass-card"
+                  sx={{
+                      mb: 4,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 1,
+                      flexWrap: "wrap",
+                      p: 2,
+                  }}>
+                  <Box>
+                      <Typography
+                          variant="h4"
+                          fontWeight={600}
+                          gutterBottom
+                          sx={{ mb: 0 }}>
+                          {trip?.title ?? "行程详情"}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                          目的地：{trip?.destination ?? "-"} ｜ 日期：
+                          {trip?.start_date ?? "?"} ~ {trip?.end_date ?? "?"}
+                      </Typography>
                   </Box>
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  实际-估算差额：{(expenseSum - estimatedTotal) >= 0 ? '+' : ''}¥{(expenseSum - estimatedTotal).toFixed(0)}
-                </Typography>
-                <Divider sx={{ my: 1 }} />
-                <Typography variant="caption" color="text.secondary">估算占比</Typography>
-                <LinearProgress variant="determinate" value={Math.min(100, (estimatedTotal / (trip!.budget_total! || 1)) * 100)} />
-                <Typography variant="caption" color="text.secondary">实际占比</Typography>
-                <LinearProgress variant="determinate" value={Math.min(100, (expenseSum / (trip!.budget_total! || 1)) * 100)} />
-              </Box>
-            ) : (
-              <Typography variant="body2" color="text.secondary">未设置总预算。当前估算花费：¥{estimatedTotal.toFixed(0)}</Typography>
-            )}
-            <Divider sx={{ my: 1.5 }} />
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <TextField size="small" label="总预算" placeholder="数字" value={budgetEdit} onChange={(e) => setBudgetEdit(e.target.value)} sx={{ flexGrow: 1 }} />
-              <MUIButton size="small" variant="contained" startIcon={<SaveIcon />} onClick={saveBudget} disabled={savingBudget}>
-                {savingBudget ? '保存中' : '保存'}
-              </MUIButton>
-            </Box>
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-              说明：总预算用于衡量花费控制；“当前估算”来自行程项的预估费用。“真实支出”记录实际发生的金额，可与估算对比。
-            </Typography>
-          </Paper>
-  </Box>
-  <Box>
-          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Typography variant="h6" gutterBottom>支出记录</Typography>
-            {expenseByCategory.length > 0 && (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {expenseByCategory.map(([cat, sum]) => (
-                  <Chip key={cat} size="small" label={`${cat} ¥${sum.toFixed(0)}`} />
-                ))}
-              </Box>
-            )}
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <TextField size="small" label="金额" value={expenseForm.amount} onChange={(e) => setExpenseForm(f => ({ ...f, amount: e.target.value }))} />
-              <TextField size="small" select label="类别" value={expenseForm.category} onChange={(e) => setExpenseForm(f => ({ ...f, category: e.target.value }))}>
-                <MenuItem value="food">美食</MenuItem>
-                <MenuItem value="transport">交通</MenuItem>
-                <MenuItem value="hotel">住宿</MenuItem>
-                <MenuItem value="sight">门票/景点</MenuItem>
-                <MenuItem value="shopping">购物</MenuItem>
-                <MenuItem value="other">其他</MenuItem>
-              </TextField>
-              <TextField size="small" label="备注" value={expenseForm.note} onChange={(e) => setExpenseForm(f => ({ ...f, note: e.target.value }))} />
-              <MUIButton size="small" variant="contained" startIcon={<AddIcon />} onClick={addExpense} disabled={savingExpense}>{savingExpense ? '提交中' : '添加支出'}</MUIButton>
-            </Box>
-            <Divider sx={{ my: 1 }} />
-            <Typography variant="caption" color="text.secondary">
-              已记录支出合计：¥{expenseSum.toFixed(0)} {typeof trip?.budget_total === 'number' && trip.budget_total > 0 && (
-                <>
-                  （占总预算 {(expenseSum / trip.budget_total * 100).toFixed(1)}% ，差额 ¥{(trip.budget_total - expenseSum).toFixed(0)}）
-                </>
-              )}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              与估算相比：{(expenseSum - estimatedTotal) >= 0 ? '超出' : '低于'} ¥{Math.abs(expenseSum - estimatedTotal).toFixed(0)}
-            </Typography>
-            <Box sx={{ maxHeight: 220, overflowY: 'auto', mt: 1, pr: 1 }}>
-              {expenses.length === 0 && <Typography variant="body2" color="text.secondary">暂无记录</Typography>}
-              {expenses.map(ex => (
-                  <Paper key={ex.id} variant="outlined" sx={{ p: 1, mb: 1, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 1 }}>
-                    <Box>
-                      {editingExpenseId === ex.id ? (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                          <TextField size="small" value={editingExpenseForm.amount} onChange={(e) => setEditingExpenseForm(f => ({ ...f, amount: e.target.value }))} />
-                          <TextField size="small" select value={editingExpenseForm.category} onChange={(e) => setEditingExpenseForm(f => ({ ...f, category: e.target.value }))}>
-                            <MenuItem value="food">美食</MenuItem>
-                            <MenuItem value="transport">交通</MenuItem>
-                            <MenuItem value="hotel">住宿</MenuItem>
-                            <MenuItem value="sight">门票/景点</MenuItem>
-                            <MenuItem value="shopping">购物</MenuItem>
-                            <MenuItem value="other">其他</MenuItem>
-                          </TextField>
-                          <TextField size="small" value={editingExpenseForm.note} onChange={(e) => setEditingExpenseForm(f => ({ ...f, note: e.target.value }))} />
-                        </Box>
-                      ) : (
-                        <>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>¥{ex.amount?.toFixed(2)} <Chip size="small" label={ex.category || 'other'} sx={{ ml: 0.5 }} /></Typography>
-                          {ex.note && <Typography variant="caption" color="text.secondary">{ex.note}</Typography>}
-                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>{ex.occurred_at?.slice(0,16).replace('T',' ')}</Typography>
-                        </>
-                      )}
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      {editingExpenseId === ex.id ? (
-                        <>
-                          <MUIButton size="small" variant="contained" onClick={async () => {
-                            // save edit
-                            const amountNum = Number(editingExpenseForm.amount);
-                            if (!Number.isFinite(amountNum)) return;
-                            try {
-                              const res = await fetch(`/api/expenses/${ex.id}`, {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ amount: amountNum, category: editingExpenseForm.category, note: editingExpenseForm.note || null }),
-                              });
-                              if (!res.ok) throw new Error('更新失败');
-                              const updated = await res.json();
-                              setExpenses(prev => prev.map(p => p.id === updated.id ? updated : p));
-                              setEditingExpenseId(null);
-                              setSnack({ open: true, message: '已更新支出', severity: 'success' });
-                            } catch (e) {
-                              console.error(e);
-                              setSnack({ open: true, message: '更新失败', severity: 'error' });
-                            }
-                          }}>保存</MUIButton>
-                          <MUIButton size="small" variant="outlined" onClick={() => setEditingExpenseId(null)}>取消</MUIButton>
-                        </>
-                      ) : (
-                        <>
-                          <IconButton size="small" onClick={() => { setEditingExpenseId(ex.id); setEditingExpenseForm({ amount: ex.amount ? String(ex.amount) : '', category: ex.category || 'other', note: ex.note || '' }); }}><EditIcon fontSize="small" /></IconButton>
-                          <Tooltip title="删除支出">
-                            <IconButton size="small" onClick={() => setExpenseToDelete(ex)}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </>
-                      )}
-                    </Box>
-                  </Paper>
-              ))}
-            </Box>
-          </Paper>
-  </Box>
-  <Box>
-          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>地图总览</Typography>
-            {markers.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">暂无可定位的地点</Typography>
-            ) : (
-              <MapView className="h-64 w-full rounded-md" markers={markers} />
-            )}
-          </Paper>
-        </Box>
-      </Box>
+                  <Tooltip title="删除整个行程">
+                      <span>
+                          <MUIButton
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              startIcon={<DeleteIcon />}
+                              disabled={!trip}
+                              onClick={() => setConfirmTripOpen(true)}
+                              sx={{
+                                  alignSelf: "flex-start",
+                                  borderWidth: 1.25,
+                              }}>
+                              删除行程
+                          </MUIButton>
+                      </span>
+                  </Tooltip>
+              </Paper>
 
-      {/* 行程分日详情 */}
-      <Box>
-        {loading && <Typography variant="body2" color="text.secondary">加载中...</Typography>}
-        {error && <Typography variant="body2" color="error.main">{error}</Typography>}
-        {!loading && !error && days.map(d => {
-                      const list = (itemsByItinerary.get(d.id) ?? []).slice();
-                      // 按开始时间升序（无时间的保持相对顺序）
-                      function toMinutes(t?: string | null): number | null {
-                        if (!t) return null;
-                        const parts = t.split(":");
-                        const hh = Number(parts[0]);
-                        const mm = Number(parts[1] || 0);
-                        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
-                        return hh * 60 + mm;
-                      }
-                      list.sort((a,b)=>{
-                        const am = toMinutes(a.start_time);
-                        const bm = toMinutes(b.start_time);
-                        if (am == null && bm == null) return 0;
-                        if (am == null) return 1;
-                        if (bm == null) return -1;
-                        return am - bm;
-                      });
-                      const dayMarkers = list
-                          .filter(
-                              (it) =>
-                                  typeof it.lat === "number" &&
-                                  typeof it.lng === "number"
-                          )
-                          .map((it) => ({
-                              lat: it.lat as number,
-                              lng: it.lng as number,
-                              title: it.name ?? undefined,
-                          }));
-                      return (
-                        <Paper key={d.id} variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+              {/* 顶部栅格：预算 + 支出 + 地图 */}
+              <Box
+                  sx={{
+                      display: "grid",
+                      gap: 3,
+                      gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" },
+                      mb: 4,
+                  }}>
+                  <Box>
+                      <Paper
+                          className="glass-card"
+                          sx={{ p: 2, borderRadius: 2 }}>
                           <Typography variant="h6" gutterBottom>
-                            第 {d.day_index} 天
-                            {trip?.start_date ? (
-                              <> · {new Date(new Date(trip.start_date).getTime() + (d.day_index - 1) * 24 * 3600 * 1000).toISOString().slice(0,10)}</>
-                            ) : null}
-                            {d.note ? ` · ${d.note}` : ''}
+                              预算概览
                           </Typography>
-                          {dayMarkers.length > 0 && (
-                            <MapView
-                              className="h-56 w-full rounded-md"
-                              markers={dayMarkers}
-                              polyline={routePaths[d.id] ? { path: routePaths[d.id] } : null}
-                            />
-                          )}
-                          {dayMarkers.length >= 2 && (
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, gap: 1, flexWrap: 'wrap' }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                <Typography variant="caption" sx={{ mr: 1 }}>路线模式</Typography>
-                                <ToggleButtonGroup
-                                  size="small"
-                                  exclusive
-                                  value={routeModeByDay[d.id] || 'driving'}
-                                  onChange={(_e, val) => val && setRouteModeByDay((m) => ({ ...m, [d.id]: val }))}
-                                >
-                                  <ToggleButton value="driving">驾车</ToggleButton>
-                                  <ToggleButton value="walking">步行</ToggleButton>
-                                  <ToggleButton value="transit">公交</ToggleButton>
-                                </ToggleButtonGroup>
+                          {typeof trip?.budget_total === "number" ? (
+                              <Box
+                                  sx={{
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: 0.5,
+                                      fontSize: 14,
+                                  }}>
+                                  <Typography variant="body2">
+                                      总预算：¥{trip!.budget_total!.toFixed(0)}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                      当前估算花费：¥{estimatedTotal.toFixed(0)}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                      真实支出：¥{expenseSum.toFixed(0)}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                      相对预算结余：
+                                      <Box
+                                          component="span"
+                                          sx={{
+                                              color:
+                                                  trip!.budget_total! -
+                                                      expenseSum <
+                                                  0
+                                                      ? "error.main"
+                                                      : "success.main",
+                                          }}>
+                                          ¥
+                                          {(
+                                              trip!.budget_total! - expenseSum
+                                          ).toFixed(0)}
+                                      </Box>
+                                  </Typography>
+                                  <Typography
+                                      variant="caption"
+                                      color="text.secondary">
+                                      实际-估算差额：
+                                      {expenseSum - estimatedTotal >= 0
+                                          ? "+"
+                                          : ""}
+                                      ¥
+                                      {(expenseSum - estimatedTotal).toFixed(0)}
+                                  </Typography>
+                                  <Divider sx={{ my: 1 }} />
+                                  <Typography
+                                      variant="caption"
+                                      color="text.secondary">
+                                      估算占比
+                                  </Typography>
+                                  <LinearProgress
+                                      variant="determinate"
+                                      value={Math.min(
+                                          100,
+                                          (estimatedTotal /
+                                              (trip!.budget_total! || 1)) *
+                                              100
+                                      )}
+                                  />
+                                  <Typography
+                                      variant="caption"
+                                      color="text.secondary">
+                                      实际占比
+                                  </Typography>
+                                  <LinearProgress
+                                      variant="determinate"
+                                      value={Math.min(
+                                          100,
+                                          (expenseSum /
+                                              (trip!.budget_total! || 1)) *
+                                              100
+                                      )}
+                                  />
                               </Box>
-                              <MUIButton size="small" variant="outlined" onClick={() => previewRoute(d.id, list, routeModeByDay[d.id] || 'driving')} disabled={!!loadingRoute[d.id]}>
-                                {loadingRoute[d.id] ? '路线加载中…' : '预览完整路线（顺序串联）'}
-                              </MUIButton>
-                            </Box>
+                          ) : (
+                              <Typography
+                                  variant="body2"
+                                  color="text.secondary">
+                                  未设置总预算。当前估算花费：¥
+                                  {estimatedTotal.toFixed(0)}
+                              </Typography>
                           )}
                           <Divider sx={{ my: 1.5 }} />
-                          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-                            {list.map(it => (
-                              <Box key={it.id}>
-                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, height: '100%' }}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                                    <Chip size="small" label={typeLabel(it.type)} color="primary" />
-                                    <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>{it.name ?? '-'}</Typography>
-                                    {/* 路线地点不可编辑且不提供单项删除入口（改为仅支持删除整条行程） */}
-                                  </Box>
-                                  {it.description && <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>{it.description}</Typography>}
-                                  <Typography variant="caption" color="text.secondary">
-                                    {it.start_time || it.end_time ? `时间：${it.start_time ?? '?'} ~ ${it.end_time ?? '?'} ｜ ` : ''}
-                                    {typeof it.estimated_cost === 'number' ? `预算：¥${it.estimated_cost}` : '预算：—'}
-                                    {transportLabel(it.transport_mode) ? ` ｜ 交通：${transportLabel(it.transport_mode)}` : ''}
-                                  </Typography>
-                                </Paper>
-                              </Box>
-                            ))}
+                          <Box sx={{ display: "flex", gap: 1 }}>
+                              <TextField
+                                  size="small"
+                                  label="总预算"
+                                  placeholder="数字"
+                                  value={budgetEdit}
+                                  onChange={(e) =>
+                                      setBudgetEdit(e.target.value)
+                                  }
+                                  sx={{ flexGrow: 1 }}
+                              />
+                              <MUIButton
+                                  size="small"
+                                  variant="contained"
+                                  startIcon={<SaveIcon />}
+                                  onClick={saveBudget}
+                                  disabled={savingBudget}>
+                                  {savingBudget ? "保存中" : "保存"}
+                              </MUIButton>
                           </Box>
-                        </Paper>
-                      );
-                  })}
-      </Box>
+                          <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ mt: 1 }}>
+                              说明：总预算用于衡量花费控制；“当前估算”来自行程项的预估费用。“真实支出”记录实际发生的金额，可与估算对比。
+                          </Typography>
+                      </Paper>
+                  </Box>
+                  <Box>
+                      <Paper
+                          className="glass-card"
+                          sx={{
+                              p: 2,
+                              borderRadius: 2,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 1,
+                          }}>
+                          <Typography variant="h6" gutterBottom>
+                              支出记录
+                          </Typography>
+                          {expenseByCategory.length > 0 && (
+                              <Box
+                                  sx={{
+                                      display: "flex",
+                                      flexWrap: "wrap",
+                                      gap: 1,
+                                  }}>
+                                  {expenseByCategory.map(([cat, sum]) => (
+                                      <Chip
+                                          key={cat}
+                                          size="small"
+                                          label={`${cat} ¥${sum.toFixed(0)}`}
+                                      />
+                                  ))}
+                              </Box>
+                          )}
+                          <Box
+                              sx={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 1,
+                              }}>
+                              <TextField
+                                  size="small"
+                                  label="金额"
+                                  value={expenseForm.amount}
+                                  onChange={(e) =>
+                                      setExpenseForm((f) => ({
+                                          ...f,
+                                          amount: e.target.value,
+                                      }))
+                                  }
+                              />
+                              <TextField
+                                  size="small"
+                                  select
+                                  label="类别"
+                                  value={expenseForm.category}
+                                  onChange={(e) =>
+                                      setExpenseForm((f) => ({
+                                          ...f,
+                                          category: e.target.value,
+                                      }))
+                                  }>
+                                  <MenuItem value="food">美食</MenuItem>
+                                  <MenuItem value="transport">交通</MenuItem>
+                                  <MenuItem value="hotel">住宿</MenuItem>
+                                  <MenuItem value="sight">门票/景点</MenuItem>
+                                  <MenuItem value="shopping">购物</MenuItem>
+                                  <MenuItem value="other">其他</MenuItem>
+                              </TextField>
+                              <TextField
+                                  size="small"
+                                  label="备注"
+                                  value={expenseForm.note}
+                                  onChange={(e) =>
+                                      setExpenseForm((f) => ({
+                                          ...f,
+                                          note: e.target.value,
+                                      }))
+                                  }
+                              />
+                              <MUIButton
+                                  size="small"
+                                  variant="contained"
+                                  startIcon={<AddIcon />}
+                                  onClick={addExpense}
+                                  disabled={savingExpense}>
+                                  {savingExpense ? "提交中" : "添加支出"}
+                              </MUIButton>
+                          </Box>
+                          <Divider sx={{ my: 1 }} />
+                          <Typography variant="caption" color="text.secondary">
+                              已记录支出合计：¥{expenseSum.toFixed(0)}{" "}
+                              {typeof trip?.budget_total === "number" &&
+                                  trip.budget_total > 0 && (
+                                      <>
+                                          （占总预算{" "}
+                                          {(
+                                              (expenseSum / trip.budget_total) *
+                                              100
+                                          ).toFixed(1)}
+                                          % ，差额 ¥
+                                          {(
+                                              trip.budget_total - expenseSum
+                                          ).toFixed(0)}
+                                          ）
+                                      </>
+                                  )}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                              与估算相比：
+                              {expenseSum - estimatedTotal >= 0
+                                  ? "超出"
+                                  : "低于"}{" "}
+                              ¥
+                              {Math.abs(expenseSum - estimatedTotal).toFixed(0)}
+                          </Typography>
+                          <Box
+                              sx={{
+                                  maxHeight: 220,
+                                  overflowY: "auto",
+                                  mt: 1,
+                                  pr: 1,
+                              }}>
+                              {expenses.length === 0 && (
+                                  <Typography
+                                      variant="body2"
+                                      color="text.secondary">
+                                      暂无记录
+                                  </Typography>
+                              )}
+                              {expenses.map((ex) => (
+                                  <Paper
+                                      key={ex.id}
+                                      variant="outlined"
+                                      sx={{
+                                          p: 1,
+                                          mb: 1,
+                                          display: "grid",
+                                          gridTemplateColumns: "1fr auto",
+                                          alignItems: "center",
+                                          gap: 1,
+                                      }}>
+                                      <Box>
+                                          {editingExpenseId === ex.id ? (
+                                              <Box
+                                                  sx={{
+                                                      display: "flex",
+                                                      flexDirection: "column",
+                                                      gap: 0.5,
+                                                  }}>
+                                                  <TextField
+                                                      size="small"
+                                                      value={
+                                                          editingExpenseForm.amount
+                                                      }
+                                                      onChange={(e) =>
+                                                          setEditingExpenseForm(
+                                                              (f) => ({
+                                                                  ...f,
+                                                                  amount: e
+                                                                      .target
+                                                                      .value,
+                                                              })
+                                                          )
+                                                      }
+                                                  />
+                                                  <TextField
+                                                      size="small"
+                                                      select
+                                                      value={
+                                                          editingExpenseForm.category
+                                                      }
+                                                      onChange={(e) =>
+                                                          setEditingExpenseForm(
+                                                              (f) => ({
+                                                                  ...f,
+                                                                  category:
+                                                                      e.target
+                                                                          .value,
+                                                              })
+                                                          )
+                                                      }>
+                                                      <MenuItem value="food">
+                                                          美食
+                                                      </MenuItem>
+                                                      <MenuItem value="transport">
+                                                          交通
+                                                      </MenuItem>
+                                                      <MenuItem value="hotel">
+                                                          住宿
+                                                      </MenuItem>
+                                                      <MenuItem value="sight">
+                                                          门票/景点
+                                                      </MenuItem>
+                                                      <MenuItem value="shopping">
+                                                          购物
+                                                      </MenuItem>
+                                                      <MenuItem value="other">
+                                                          其他
+                                                      </MenuItem>
+                                                  </TextField>
+                                                  <TextField
+                                                      size="small"
+                                                      value={
+                                                          editingExpenseForm.note
+                                                      }
+                                                      onChange={(e) =>
+                                                          setEditingExpenseForm(
+                                                              (f) => ({
+                                                                  ...f,
+                                                                  note: e.target
+                                                                      .value,
+                                                              })
+                                                          )
+                                                      }
+                                                  />
+                                              </Box>
+                                          ) : (
+                                              <>
+                                                  <Typography
+                                                      component="span"
+                                                      variant="body2"
+                                                      sx={{ fontWeight: 500, display: 'inline-flex', alignItems: 'center' }}>
+                                                      ¥{ex.amount?.toFixed(2)}{" "}
+                                                      <Chip
+                                                          size="small"
+                                                          label={ex.category || "other"}
+                                                          sx={{ ml: 0.5 }}
+                                                      />
+                                                  </Typography>
+                                                  {ex.note && (
+                                                      <Typography
+                                                          variant="caption"
+                                                          color="text.secondary">
+                                                          {ex.note}
+                                                      </Typography>
+                                                  )}
+                                                  <Typography
+                                                      variant="caption"
+                                                      color="text.disabled"
+                                                      sx={{ display: "block" }}>
+                                                      {ex.occurred_at
+                                                          ?.slice(0, 16)
+                                                          .replace("T", " ")}
+                                                  </Typography>
+                                              </>
+                                          )}
+                                      </Box>
+                                      <Box sx={{ display: "flex", gap: 0.5 }}>
+                                          {editingExpenseId === ex.id ? (
+                                              <>
+                                                  <MUIButton
+                                                      size="small"
+                                                      variant="contained"
+                                                      onClick={async () => {
+                                                          // save edit
+                                                          const amountNum =
+                                                              Number(
+                                                                  editingExpenseForm.amount
+                                                              );
+                                                          if (
+                                                              !Number.isFinite(
+                                                                  amountNum
+                                                              )
+                                                          )
+                                                              return;
+                                                          try {
+                                                              const res =
+                                                                  await fetch(
+                                                                      `/api/expenses/${ex.id}`,
+                                                                      {
+                                                                          method: "PATCH",
+                                                                          headers:
+                                                                              {
+                                                                                  "Content-Type":
+                                                                                      "application/json",
+                                                                              },
+                                                                          body: JSON.stringify(
+                                                                              {
+                                                                                  amount: amountNum,
+                                                                                  category:
+                                                                                      editingExpenseForm.category,
+                                                                                  note:
+                                                                                      editingExpenseForm.note ||
+                                                                                      null,
+                                                                              }
+                                                                          ),
+                                                                      }
+                                                                  );
+                                                              if (!res.ok)
+                                                                  throw new Error(
+                                                                      "更新失败"
+                                                                  );
+                                                              const updated =
+                                                                  await res.json();
+                                                              setExpenses(
+                                                                  (prev) =>
+                                                                      prev.map(
+                                                                          (p) =>
+                                                                              p.id ===
+                                                                              updated.id
+                                                                                  ? updated
+                                                                                  : p
+                                                                      )
+                                                              );
+                                                              setEditingExpenseId(
+                                                                  null
+                                                              );
+                                                              setSnack({
+                                                                  open: true,
+                                                                  message:
+                                                                      "已更新支出",
+                                                                  severity:
+                                                                      "success",
+                                                              });
+                                                          } catch (e) {
+                                                              console.error(e);
+                                                              setSnack({
+                                                                  open: true,
+                                                                  message:
+                                                                      "更新失败",
+                                                                  severity:
+                                                                      "error",
+                                                              });
+                                                          }
+                                                      }}>
+                                                      保存
+                                                  </MUIButton>
+                                                  <MUIButton
+                                                      size="small"
+                                                      variant="outlined"
+                                                      onClick={() =>
+                                                          setEditingExpenseId(
+                                                              null
+                                                          )
+                                                      }>
+                                                      取消
+                                                  </MUIButton>
+                                              </>
+                                          ) : (
+                                              <>
+                                                  <IconButton
+                                                      size="small"
+                                                      onClick={() => {
+                                                          setEditingExpenseId(
+                                                              ex.id
+                                                          );
+                                                          setEditingExpenseForm(
+                                                              {
+                                                                  amount: ex.amount
+                                                                      ? String(
+                                                                            ex.amount
+                                                                        )
+                                                                      : "",
+                                                                  category:
+                                                                      ex.category ||
+                                                                      "other",
+                                                                  note:
+                                                                      ex.note ||
+                                                                      "",
+                                                              }
+                                                          );
+                                                      }}>
+                                                      <EditIcon fontSize="small" />
+                                                  </IconButton>
+                                                  <Tooltip title="删除支出">
+                                                      <IconButton
+                                                          size="small"
+                                                          onClick={() =>
+                                                              setExpenseToDelete(
+                                                                  ex
+                                                              )
+                                                          }>
+                                                          <DeleteIcon fontSize="small" />
+                                                      </IconButton>
+                                                  </Tooltip>
+                                              </>
+                                          )}
+                                      </Box>
+                                  </Paper>
+                              ))}
+                          </Box>
+                      </Paper>
+                  </Box>
+                  <Box>
+                      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                          <Typography variant="h6" gutterBottom>
+                              地图总览
+                          </Typography>
+                          {markers.length === 0 ? (
+                              <Typography
+                                  variant="body2"
+                                  color="text.secondary">
+                                  暂无可定位的地点
+                              </Typography>
+                          ) : (
+                              <MapView
+                                  className="h-64 w-full rounded-md"
+                                  markers={markers}
+                              />
+                          )}
+                      </Paper>
+                  </Box>
+              </Box>
 
-    </Box>
-    {/* Trip delete confirm */}
-    <Dialog open={confirmTripOpen} onClose={() => (!deletingTrip && setConfirmTripOpen(false))}>
-      <DialogTitle>删除行程</DialogTitle>
-      <DialogContent>
-        <DialogContentText>
-          确认删除整个行程？该操作会级联删除所有当天安排、行程项、预算与支出，且不可撤销。
-        </DialogContentText>
-      </DialogContent>
-      <DialogActions>
-        <MUIButton onClick={() => setConfirmTripOpen(false)} disabled={deletingTrip}>取消</MUIButton>
-        <MUIButton color="error" variant="contained" disabled={deletingTrip} onClick={async () => {
-          if (!trip) return;
-          setDeletingTrip(true);
-          try {
-            const res = await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' });
-            if (!res.ok) throw new Error('删除失败');
-            setSnack({ open: true, message: '行程已删除', severity: 'success' });
-            setConfirmTripOpen(false);
-            // 稍作延迟以展示反馈
-            setTimeout(() => router.push('/trips'), 450);
-          } catch (e) {
-            console.error(e);
-            setSnack({ open: true, message: '删除失败', severity: 'error' });
-          } finally {
-            setDeletingTrip(false);
-          }
-        }}>删除</MUIButton>
-      </DialogActions>
-    </Dialog>
+              {/* 行程分日详情 */}
+              <Box>
+                  {loading && (
+                      <Typography variant="body2" color="text.secondary">
+                          加载中...
+                      </Typography>
+                  )}
+                  {error && (
+                      <Typography variant="body2" color="error.main">
+                          {error}
+                      </Typography>
+                  )}
+                  {!loading &&
+                      !error &&
+                      days.map((d) => {
+                          const list = (
+                              itemsByItinerary.get(d.id) ?? []
+                          ).slice();
+                          // 按开始时间升序（无时间的保持相对顺序）
+                          function toMinutes(t?: string | null): number | null {
+                              if (!t) return null;
+                              const parts = t.split(":");
+                              const hh = Number(parts[0]);
+                              const mm = Number(parts[1] || 0);
+                              if (!Number.isFinite(hh) || !Number.isFinite(mm))
+                                  return null;
+                              return hh * 60 + mm;
+                          }
+                          list.sort((a, b) => {
+                              const am = toMinutes(a.start_time);
+                              const bm = toMinutes(b.start_time);
+                              if (am == null && bm == null) return 0;
+                              if (am == null) return 1;
+                              if (bm == null) return -1;
+                              return am - bm;
+                          });
+                                                    const dayMarkers = list
+                                                        .map((it) => ({
+                                                            lat: typeof it.lat === 'string' ? Number(it.lat) : it.lat,
+                                                            lng: typeof it.lng === 'string' ? Number(it.lng) : it.lng,
+                                                            title: it.name ?? undefined,
+                                                        }))
+                                                        .filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lng)) as {lat:number;lng:number;title?:string}[];
+                          return (
+                              <Paper
+                                  key={d.id}
+                                  variant="outlined"
+                                  sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+                                  <Typography variant="h6" gutterBottom>
+                                      第 {d.day_index} 天
+                                      {trip?.start_date ? (
+                                          <>
+                                              {" "}
+                                              ·{" "}
+                                              {new Date(
+                                                  new Date(
+                                                      trip.start_date
+                                                  ).getTime() +
+                                                      (d.day_index - 1) *
+                                                          24 *
+                                                          3600 *
+                                                          1000
+                                              )
+                                                  .toISOString()
+                                                  .slice(0, 10)}
+                                          </>
+                                      ) : null}
+                                      {d.note ? ` · ${d.note}` : ""}
+                                  </Typography>
+                                  {dayMarkers.length > 0 && (
+                                      <MapView
+                                          className="h-56 w-full rounded-md"
+                                          markers={dayMarkers}
+                                          polyline={
+                                              routePaths[d.id]
+                                                  ? { path: routePaths[d.id] }
+                                                  : null
+                                          }
+                                      />
+                                  )}
+                                  {dayMarkers.length >= 2 && (
+                                      <Box
+                                          sx={{
+                                              display: "flex",
+                                              justifyContent: "space-between",
+                                              alignItems: "center",
+                                              mt: 1,
+                                              gap: 1,
+                                              flexWrap: "wrap",
+                                          }}>
+                                          <Box
+                                              sx={{
+                                                  display: "flex",
+                                                  alignItems: "center",
+                                              }}>
+                                              <Typography
+                                                  variant="caption"
+                                                  sx={{ mr: 1 }}>
+                                                  路线模式
+                                              </Typography>
+                                              <ToggleButtonGroup
+                                                  size="small"
+                                                  exclusive
+                                                  value={
+                                                      routeModeByDay[d.id] ||
+                                                      "driving"
+                                                  }
+                                                  onChange={(_e, val) =>
+                                                      val &&
+                                                      setRouteModeByDay(
+                                                          (m) => ({
+                                                              ...m,
+                                                              [d.id]: val,
+                                                          })
+                                                      )
+                                                  }>
+                                                  <ToggleButton value="driving">
+                                                      驾车
+                                                  </ToggleButton>
+                                                  <ToggleButton value="walking">
+                                                      步行
+                                                  </ToggleButton>
+                                                  <ToggleButton value="transit">
+                                                      公交
+                                                  </ToggleButton>
+                                              </ToggleButtonGroup>
+                                          </Box>
+                                          <MUIButton
+                                              size="small"
+                                              variant="outlined"
+                                              onClick={() =>
+                                                  previewRoute(
+                                                      d.id,
+                                                      list,
+                                                      routeModeByDay[d.id] ||
+                                                          "driving"
+                                                  )
+                                              }
+                                              disabled={!!loadingRoute[d.id]}>
+                                              {loadingRoute[d.id]
+                                                  ? "路线加载中…"
+                                                  : "预览完整路线（顺序串联）"}
+                                          </MUIButton>
+                                      </Box>
+                                  )}
+                                  <Divider sx={{ my: 1.5 }} />
+                                  <Box
+                                      sx={{
+                                          display: "grid",
+                                          gap: 2,
+                                          gridTemplateColumns: {
+                                              xs: "1fr",
+                                              md: "1fr 1fr",
+                                          },
+                                      }}>
+                                      {list.map((it) => (
+                                          <Box key={it.id}>
+                                              <Paper
+                                                  variant="outlined"
+                                                  sx={{
+                                                      p: 1.5,
+                                                      borderRadius: 2,
+                                                      height: "100%",
+                                                  }}>
+                                                  <Box
+                                                      sx={{
+                                                          display: "flex",
+                                                          alignItems: "center",
+                                                          gap: 1,
+                                                          mb: 0.5,
+                                                      }}>
+                                                      <Chip
+                                                          size="small"
+                                                          label={typeLabel(
+                                                              it.type
+                                                          )}
+                                                          color="primary"
+                                                      />
+                                                      <Typography
+                                                          variant="subtitle2"
+                                                          sx={{ flexGrow: 1 }}>
+                                                          {it.name ?? "-"}
+                                                      </Typography>
+                                                      {/* 路线地点不可编辑且不提供单项删除入口（改为仅支持删除整条行程） */}
+                                                  </Box>
+                                                  {it.description && (
+                                                      <Typography
+                                                          variant="body2"
+                                                          color="text.secondary"
+                                                          sx={{ mb: 0.5 }}>
+                                                          {it.description}
+                                                      </Typography>
+                                                  )}
+                                                  <Typography
+                                                      variant="caption"
+                                                      color="text.secondary">
+                                                      {it.start_time ||
+                                                      it.end_time
+                                                          ? `时间：${
+                                                                it.start_time ??
+                                                                "?"
+                                                            } ~ ${
+                                                                it.end_time ??
+                                                                "?"
+                                                            } ｜ `
+                                                          : ""}
+                                                      {typeof it.estimated_cost ===
+                                                      "number"
+                                                          ? `预算：¥${it.estimated_cost}`
+                                                          : "预算：—"}
+                                                      {transportLabel(
+                                                          it.transport_mode
+                                                      )
+                                                          ? ` ｜ 交通：${transportLabel(
+                                                                it.transport_mode
+                                                            )}`
+                                                          : ""}
+                                                  </Typography>
+                                              </Paper>
+                                          </Box>
+                                      ))}
+                                  </Box>
+                              </Paper>
+                          );
+                      })}
+              </Box>
+          </Box>
+          {/* Trip delete confirm */}
+          <Dialog
+              open={confirmTripOpen}
+              onClose={() => !deletingTrip && setConfirmTripOpen(false)}>
+              <DialogTitle>删除行程</DialogTitle>
+              <DialogContent>
+                  <DialogContentText>
+                      确认删除整个行程？该操作会级联删除所有当天安排、行程项、预算与支出，且不可撤销。
+                  </DialogContentText>
+              </DialogContent>
+              <DialogActions>
+                  <MUIButton
+                      onClick={() => setConfirmTripOpen(false)}
+                      disabled={deletingTrip}>
+                      取消
+                  </MUIButton>
+                  <MUIButton
+                      color="error"
+                      variant="contained"
+                      disabled={deletingTrip}
+                      onClick={async () => {
+                          if (!trip) return;
+                          setDeletingTrip(true);
+                          try {
+                              const res = await fetch(`/api/trips/${trip.id}`, {
+                                  method: "DELETE",
+                              });
+                              if (!res.ok) throw new Error("删除失败");
+                              setSnack({
+                                  open: true,
+                                  message: "行程已删除",
+                                  severity: "success",
+                              });
+                              setConfirmTripOpen(false);
+                              // 稍作延迟以展示反馈
+                              setTimeout(() => router.push("/trips"), 450);
+                          } catch (e) {
+                              console.error(e);
+                              setSnack({
+                                  open: true,
+                                  message: "删除失败",
+                                  severity: "error",
+                              });
+                          } finally {
+                              setDeletingTrip(false);
+                          }
+                      }}>
+                      删除
+                  </MUIButton>
+              </DialogActions>
+          </Dialog>
 
-    {/* Expense delete confirm */}
-    <Dialog open={!!expenseToDelete} onClose={() => (!deletingExpense && setExpenseToDelete(null))}>
-      <DialogTitle>删除支出</DialogTitle>
-      <DialogContent>
-        <DialogContentText>
-          确认删除这条支出记录？此操作不可撤销。
-        </DialogContentText>
-      </DialogContent>
-      <DialogActions>
-        <MUIButton onClick={() => setExpenseToDelete(null)} disabled={deletingExpense}>取消</MUIButton>
-        <MUIButton color="error" variant="contained" disabled={deletingExpense} onClick={async () => {
-          const ex = expenseToDelete;
-          if (!ex) return;
-          setDeletingExpense(true);
-          try {
-            const res = await fetch(`/api/expenses/${ex.id}`, { method: 'DELETE' });
-            if (!res.ok) throw new Error('删除失败');
-            setExpenses(prev => prev.filter(p => p.id !== ex.id));
-            setSnack({ open: true, message: '已删除支出', severity: 'success' });
-            setExpenseToDelete(null);
-          } catch (e) {
-            console.error(e);
-            setSnack({ open: true, message: '删除失败', severity: 'error' });
-          } finally {
-            setDeletingExpense(false);
-          }
-        }}>删除</MUIButton>
-      </DialogActions>
-    </Dialog>
+          {/* Expense delete confirm */}
+          <Dialog
+              open={!!expenseToDelete}
+              onClose={() => !deletingExpense && setExpenseToDelete(null)}>
+              <DialogTitle>删除支出</DialogTitle>
+              <DialogContent>
+                  <DialogContentText>
+                      确认删除这条支出记录？此操作不可撤销。
+                  </DialogContentText>
+              </DialogContent>
+              <DialogActions>
+                  <MUIButton
+                      onClick={() => setExpenseToDelete(null)}
+                      disabled={deletingExpense}>
+                      取消
+                  </MUIButton>
+                  <MUIButton
+                      color="error"
+                      variant="contained"
+                      disabled={deletingExpense}
+                      onClick={async () => {
+                          const ex = expenseToDelete;
+                          if (!ex) return;
+                          setDeletingExpense(true);
+                          try {
+                              const res = await fetch(
+                                  `/api/expenses/${ex.id}`,
+                                  { method: "DELETE" }
+                              );
+                              if (!res.ok) throw new Error("删除失败");
+                              setExpenses((prev) =>
+                                  prev.filter((p) => p.id !== ex.id)
+                              );
+                              setSnack({
+                                  open: true,
+                                  message: "已删除支出",
+                                  severity: "success",
+                              });
+                              setExpenseToDelete(null);
+                          } catch (e) {
+                              console.error(e);
+                              setSnack({
+                                  open: true,
+                                  message: "删除失败",
+                                  severity: "error",
+                              });
+                          } finally {
+                              setDeletingExpense(false);
+                          }
+                      }}>
+                      删除
+                  </MUIButton>
+              </DialogActions>
+          </Dialog>
 
-    {/* Snackbar feedback */}
-    <Snackbar open={snack.open} autoHideDuration={2000} onClose={() => setSnack(s => ({ ...s, open: false }))}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
-      <Alert onClose={() => setSnack(s => ({ ...s, open: false }))} severity={snack.severity} sx={{ width: '100%' }}>
-        {snack.message}
-      </Alert>
-    </Snackbar>
-    </>
+          {/* Snackbar feedback */}
+          <Snackbar
+              open={snack.open}
+              autoHideDuration={2000}
+              onClose={() => setSnack((s) => ({ ...s, open: false }))}
+              anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
+              <Alert
+                  onClose={() => setSnack((s) => ({ ...s, open: false }))}
+                  severity={snack.severity}
+                  sx={{ width: "100%" }}>
+                  {snack.message}
+              </Alert>
+          </Snackbar>
+      </>
   );
 }
