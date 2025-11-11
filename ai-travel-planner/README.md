@@ -30,26 +30,40 @@ pnpm install
 ```
 
 ### 配置环境变量（.env.local）
-在 `ai-travel-planner/.env.local` 填入如下变量：
-
-公开（浏览器可见）：
+推荐先复制模板：
+```bash
+cp ai-travel-planner/.env.example ai-travel-planner/.env.local
 ```
+按需填写 `.env.local`，完整清单如下（可直接复制）：
+
+```bash
+# 公开（浏览器可见）
 NEXT_PUBLIC_AMAP_KEY=你的高德Web JS API Key
 NEXT_PUBLIC_AMAP_SECURITY_JS_CODE=你的高德JS安全码
 NEXT_PUBLIC_SUPABASE_URL=你的 Supabase 项目 URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=你的 Supabase 匿名 Key
-```
 
-仅服务端（不要暴露给客户端）：
-```
+# 仅服务端（不要暴露给客户端）
 DASHSCOPE_API_KEY=你的阿里云百炼 API Key
-AMAP_REST_KEY=你的高德 REST Key（用于地理编码，可选）
-ENCRYPTION_SECRET=随机字符串（如用到加密）
+# 可选：默认 qwen-plus
+DASHSCOPE_MODEL=qwen-plus
+# 可选：百炼兼容端点，默认官方
+DASHSCOPE_COMPAT_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 
-# 仅当启用科大讯飞 ASR 时需要
+# 可选：为地点补经纬度（高德 REST）
+AMAP_REST_KEY=
+
+# 可选：如项目启用对称加密（自定义功能）
+ENCRYPTION_SECRET=
+
+# 语音识别（科大讯飞 WebAPI）——仅当启用 /api/asr/iflytek 时需要
 IFLYTEK_APPID=你的讯飞 WebAPI 应用 AppID
 IFLYTEK_API_KEY=你的讯飞 WebAPI API Key
-IFLYTEK_API_SECRET=你的讯飞 WebAPI API Secret（启用 v2 WebSocket 所需）
+# 启用 v2 WebSocket 推荐提供 API Secret
+IFLYTEK_API_SECRET=你的讯飞 WebAPI API Secret
+
+# 可选：地理编码最大请求数（避免频繁外呼），默认 20
+GEOCODE_LIMIT=20
 ```
 
 注意：`.env.local` 不要提交到公开仓库。如已泄漏请在各平台重置 Key。
