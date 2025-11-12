@@ -45,25 +45,15 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=你的 Supabase 匿名 Key
 
 # 仅服务端（不要暴露给客户端）
 DASHSCOPE_API_KEY=你的阿里云百炼 API Key
-# 可选：默认 qwen-plus
-DASHSCOPE_MODEL=qwen-plus
-# 可选：百炼兼容端点，默认官方
-DASHSCOPE_COMPAT_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 
-# 可选：为地点补经纬度（高德 REST）
+# 为地点补经纬度（高德 REST）
 AMAP_REST_KEY=
 
-# 可选：如项目启用对称加密（自定义功能）
-ENCRYPTION_SECRET=
-
-# 语音识别（科大讯飞 WebAPI）——仅当启用 /api/asr/iflytek 时需要
+# 语音识别（科大讯飞 WebAPI）
 IFLYTEK_APPID=你的讯飞 WebAPI 应用 AppID
 IFLYTEK_API_KEY=你的讯飞 WebAPI API Key
 # 启用 v2 WebSocket 推荐提供 API Secret
 IFLYTEK_API_SECRET=你的讯飞 WebAPI API Secret
-
-# 可选：地理编码最大请求数（避免频繁外呼），默认 20
-GEOCODE_LIMIT=20
 ```
 
 注意：`.env.local` 不要提交到公开仓库。如已泄漏请在各平台重置 Key。
@@ -119,6 +109,86 @@ pnpm build
 pnpm start # 默认 0.0.0.0:3000
 ```
 将 `.env.local` 内容以进程环境变量方式注入（或写入服务器上的 `.env`），前置 Nginx/Traefik 提供 HTTPS 与反向代理。
+
+### Docker 镜像 & Compose
+
+已提供 `Dockerfile` 与 `docker-compose.yml`：
+
+1. 准备环境变量：复制并填写
+	 ```bash
+	 cp .env.example .env.docker
+	 # 编辑 .env.docker 填入你的密钥
+	 ```
+2. 本地构建镜像（确保在构建阶段注入 NEXT_PUBLIC_*）：
+	```bash
+	docker compose --env-file .env.docker build
+	```
+3. 运行（运行时以 env_file 注入服务端密钥）：
+	```bash
+	docker compose --env-file .env.docker up -d
+	```
+4. 访问：http://localhost:3000
+
+生产部署建议：
+- 使用阿里云镜像仓库（ACR）或其他私有仓库：`docker build -t registry.cn-hangzhou.aliyuncs.com/your-namespace/ai-travel-planner:latest .`
+- 登录并推送：
+	```bash
+	docker login registry.cn-hangzhou.aliyuncs.com
+	docker push registry.cn-hangzhou.aliyuncs.com/your-namespace/ai-travel-planner:latest
+	```
+- 服务器拉取并运行（加载外置 env 文件或使用 secrets 管理）
+
+### 手动分发镜像（可选）
+
+若你不使用工作流，可本地手动构建/导出给他人：
+
+1. 本地构建（需注入 NEXT_PUBLIC_*）：
+	 ```bash
+	 docker compose --env-file .env.docker build
+	 ```
+2. 打 Tag（可选，便于标识）：
+	 ```bash
+	 docker tag ai-travel-planner:latest ai-travel-planner:$(date +%Y%m%d)
+	 ```
+3. 导出为离线镜像文件：
+	 ```bash
+	 docker save -o ai-travel-planner.tar ai-travel-planner:latest
+	 # 或导出指定 tag
+	 docker save -o ai-travel-planner-2025xxxx.tar ai-travel-planner:2025xxxx
+	 ```
+4. 他人导入：
+	 ```bash
+	 docker load -i ai-travel-planner.tar
+	 ```
+5. 他人运行：
+	 - 准备 `.env.docker`（仅需要运行期密钥，如 DASHSCOPE_API_KEY、IFLYTEK_*）
+	 - 使用 docker run：
+		 ```bash
+		 docker run -d --name ai-travel \
+			 --env-file .env.docker \
+			 -p 3000:3000 \
+			 ai-travel-planner:latest
+		 ```
+	 - 或使用 docker compose 覆盖镜像名：
+		 ```yaml
+		 # docker-compose.override.yml
+		 services:
+			 web:
+				 image: ai-travel-planner:latest
+				 env_file:
+					 - ./.env.docker
+				 ports:
+					 - "3000:3000"
+		 ```
+		 ```bash
+		 docker compose --env-file .env.docker up -d
+		 ```
+	- 启动时可能会报缺少客户端环境变量的警告，无视即可
+
+> 注意：
+> - Next.js 的 `NEXT_PUBLIC_*` 变量会在构建期被内联（用于客户端代码），因此变更这些值需要重新构建镜像。
+> - 服务端密钥（如 `DASHSCOPE_API_KEY`、`IFLYTEK_*`）不要 bake 进镜像，使用 `env_file` 或 Kubernetes Secret 在运行时注入即可。
+> - 有状态数据（行程）在 Supabase；镜像保持无状态，便于水平扩容与回滚。
 
 ---
 

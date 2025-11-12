@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  web:
+    image: ${IMAGE_NAME:-ai-travel-planner}:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_AMAP_KEY: ${NEXT_PUBLIC_AMAP_KEY}
+        NEXT_PUBLIC_AMAP_SECURITY_JS_CODE: ${NEXT_PUBLIC_AMAP_SECURITY_JS_CODE}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env.docker
+    restart: unless-stopped
+    # 若部署在国内环境，建议在构建阶段预设代理/镜像源
+    # environment:
+    #   HTTP_PROXY: http://your-proxy
+    #   HTTPS_PROXY: http://your-proxy
